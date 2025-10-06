@@ -1,0 +1,28 @@
+{
+  "name": "gold-billing-system",
+  "version": "1.0.0",
+  "description": "Offline Gold Billing System with SQLite backend and React frontend",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:frontend": "cd frontend && npm run preview",
+    "start:backend": "cd backend && npm run start",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "migrate": "cd backend && npm run migrate",
+    "seed": "cd backend && npm run seed",
+    "setup": "npm run install:all && npm run migrate && npm run seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "workspaces": [
+    "frontend",
+    "backend"
+  ]
+}
