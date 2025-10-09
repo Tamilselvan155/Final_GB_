@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS invoices (
 CREATE TABLE IF NOT EXISTS bill_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bill_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    product_id INTEGER,
     product_name TEXT NOT NULL,
     weight REAL NOT NULL,
     rate REAL NOT NULL,
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS bill_items (
 CREATE TABLE IF NOT EXISTS invoice_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     invoice_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    product_id INTEGER,
     product_name TEXT NOT NULL,
     weight REAL NOT NULL,
     rate REAL NOT NULL,

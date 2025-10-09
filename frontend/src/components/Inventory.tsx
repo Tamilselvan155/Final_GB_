@@ -89,9 +89,29 @@ const Inventory: React.FC = () => {
         await db.delete('products', id);
         setProducts(products.filter(p => p.id !== id));
         success('Product deleted successfully!');
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error deleting product:', err);
-        error('Failed to delete product. Please try again.');
+        
+        // Check if it's a foreign key constraint error
+        if (err.response?.status === 400 && err.response?.data?.references) {
+          const references = err.response.data.references;
+          const message = `This product is referenced in ${references.bills} bill(s) and ${references.invoices} invoice(s). Do you want to delete it anyway? This will remove the product references from bills and invoices.`;
+          
+          if (window.confirm(message)) {
+            try {
+              // Try cascade deletion
+              const db = Database.getInstance();
+              await db.deleteWithCascade('products', id);
+              setProducts(products.filter(p => p.id !== id));
+              success('Product deleted successfully! References have been removed from bills and invoices.');
+            } catch (cascadeErr) {
+              console.error('Error in cascade delete:', cascadeErr);
+              error('Failed to delete product even with cascade. Please try again.');
+            }
+          }
+        } else {
+          error('Failed to delete product. Please try again.');
+        }
       }
     }
   };
@@ -199,8 +219,11 @@ const Inventory: React.FC = () => {
                 <input
                   type="number"
                   step="0.01"
-                  value={formData.weight}
-                  onChange={(e) => setFormData({ ...formData, weight: parseFloat(e.target.value) })}
+                  value={formData.weight || ''}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({ ...formData, weight: value === '' ? 0 : parseFloat(value) || 0 });
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                   required
                 />
@@ -228,8 +251,11 @@ const Inventory: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  value={formData.making_charge}
-                  onChange={(e) => setFormData({ ...formData, making_charge: parseInt(e.target.value) })}
+                  value={formData.making_charge || ''}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({ ...formData, making_charge: value === '' ? 0 : parseInt(value) || 0 });
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                   required
                 />
@@ -241,8 +267,11 @@ const Inventory: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  value={formData.current_rate}
-                  onChange={(e) => setFormData({ ...formData, current_rate: parseInt(e.target.value) })}
+                  value={formData.current_rate || ''}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({ ...formData, current_rate: value === '' ? 0 : parseInt(value) || 0 });
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                   required
                 />
@@ -254,8 +283,11 @@ const Inventory: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  value={formData.stock_quantity}
-                  onChange={(e) => setFormData({ ...formData, stock_quantity: parseInt(e.target.value) })}
+                  value={formData.stock_quantity || ''}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({ ...formData, stock_quantity: value === '' ? 0 : parseInt(value) || 0 });
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                   required
                 />
@@ -267,8 +299,11 @@ const Inventory: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  value={formData.min_stock_level}
-                  onChange={(e) => setFormData({ ...formData, min_stock_level: parseInt(e.target.value) })}
+                  value={formData.min_stock_level || ''}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({ ...formData, min_stock_level: value === '' ? 0 : parseInt(value) || 0 });
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                   required
                 />

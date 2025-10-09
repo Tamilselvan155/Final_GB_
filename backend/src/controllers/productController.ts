@@ -166,7 +166,41 @@ export const updateProduct = async (req: Request, res: Response) => {
 export const deleteProduct = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const { cascade = false } = req.query;
     
+    // Check if product exists first
+    const checkStmt = Database.prepare('SELECT id FROM products WHERE id = ?');
+    const product = checkStmt.get(id);
+    
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        error: 'Product not found'
+      });
+    }
+    
+    // Check for foreign key references before deletion
+    const billItemsStmt = Database.prepare('SELECT COUNT(*) as count FROM bill_items WHERE product_id = ?');
+    const invoiceItemsStmt = Database.prepare('SELECT COUNT(*) as count FROM invoice_items WHERE product_id = ?');
+    const stockTransactionsStmt = Database.prepare('SELECT COUNT(*) as count FROM stock_transactions WHERE product_id = ?');
+    
+    const billItemsCount = billItemsStmt.get(id).count;
+    const invoiceItemsCount = invoiceItemsStmt.get(id).count;
+    const stockTransactionsCount = stockTransactionsStmt.get(id).count;
+    
+    if ((billItemsCount > 0 || invoiceItemsCount > 0) && !cascade) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot delete product. It is referenced in ${billItemsCount} bill(s) and ${invoiceItemsCount} invoice(s). Use cascade=true to force deletion.`,
+        references: {
+          bills: billItemsCount,
+          invoices: invoiceItemsCount,
+          stockTransactions: stockTransactionsCount
+        }
+      });
+    }
+    
+    // If cascade is true, delete the product and let foreign keys handle the references
     const stmt = Database.prepare('DELETE FROM products WHERE id = ?');
     const result = stmt.run(id);
     
@@ -179,12 +213,15 @@ export const deleteProduct = async (req: Request, res: Response) => {
     
     res.json({
       success: true,
-      message: 'Product deleted successfully'
+      message: cascade 
+        ? `Product deleted successfully. ${billItemsCount} bill references and ${invoiceItemsCount} invoice references were set to NULL.`
+        : 'Product deleted successfully'
     });
   } catch (error) {
+    console.error('Error deleting product:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to delete product'
+      error: `Failed to delete product: ${error instanceof Error ? error.message : 'Unknown error'}`
     });
   }
 };

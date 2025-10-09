@@ -42,7 +42,7 @@ export const apiEndpoints = {
     getById: (id: string) => api.get(`/products/${id}`),
     create: (data: any) => api.post('/products', data),
     update: (id: string, data: any) => api.put(`/products/${id}`, data),
-    delete: (id: string) => api.delete(`/products/${id}`),
+    delete: (id: string, params?: any) => api.delete(`/products/${id}`, { params }),
   },
   
   // Customers

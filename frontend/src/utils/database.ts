@@ -323,6 +323,27 @@ class Database {
         throw new Error(`Unknown table: ${table}`);
     }
   }
+
+  public async deleteWithCascade(table: string, id: string) {
+    switch (table) {
+      case 'products':
+        return this.deleteProductWithCascade(id);
+      case 'customers':
+        return this.deleteCustomer(id);
+      default:
+        throw new Error(`Unknown table: ${table}`);
+    }
+  }
+
+  public async deleteProductWithCascade(id: string) {
+    try {
+      const response = await apiEndpoints.products.delete(id, { cascade: true });
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting product with cascade:', error);
+      throw error;
+    }
+  }
 }
 
 export default Database;
