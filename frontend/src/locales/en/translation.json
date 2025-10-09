@@ -64,6 +64,8 @@
     "salesByCategory": "Sales by Category",
     "thisMonth": "This month",
     "recentInvoices": "Recent Invoices",
+    "allInvoices": "All Invoices",
+    "invoices": "invoices",
     "lowStockAlertsTitle": "Low Stock Alerts",
     "items": "items",
     "allProductsWellStocked": "All products are well stocked!",

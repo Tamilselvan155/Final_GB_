@@ -3,9 +3,11 @@ import { Package, Plus, Search, Filter, CreditCard as Edit, Trash2, AlertTriangl
 import Database from '../utils/database';
 import { Product } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useToast } from '../contexts/ToastContext';
 
 const Inventory: React.FC = () => {
   const { t } = useLanguage();
+  const { success, error } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,9 +26,14 @@ const Inventory: React.FC = () => {
   }, [products, searchTerm, selectedCategory]);
 
   const loadProducts = async () => {
-    const db = Database.getInstance();
-    const productData = await db.query('products') as Product[];
-    setProducts(productData);
+    try {
+      const db = Database.getInstance();
+      const productData = await db.query('products') as Product[];
+      setProducts(productData);
+    } catch (err) {
+      console.error('Error loading products:', err);
+      error('Failed to load products. Please try again.');
+    }
   };
 
   const filterProducts = () => {
@@ -48,26 +55,44 @@ const Inventory: React.FC = () => {
   };
 
   const handleAddProduct = async (productData: Omit<Product, 'id' | 'created_at' | 'updated_at'>) => {
-    const db = Database.getInstance();
-    const newProduct = await db.insert('products', productData);
-    setProducts([...products, newProduct]);
-    setShowAddModal(false);
+    try {
+      const db = Database.getInstance();
+      const newProduct = await db.insert('products', productData);
+      setProducts([...products, newProduct]);
+      setShowAddModal(false);
+      success('Product added successfully!');
+    } catch (err) {
+      console.error('Error adding product:', err);
+      error('Failed to add product. Please try again.');
+    }
   };
 
   const handleEditProduct = async (id: string, productData: Partial<Product>) => {
-    const db = Database.getInstance();
-    const updatedProduct = await db.update('products', id, productData);
-    if (updatedProduct) {
-      setProducts(products.map(p => p.id === id ? updatedProduct : p));
-      setEditingProduct(null);
+    try {
+      const db = Database.getInstance();
+      const updatedProduct = await db.update('products', id, productData);
+      if (updatedProduct) {
+        setProducts(products.map(p => p.id === id ? updatedProduct : p));
+        setEditingProduct(null);
+        success('Product updated successfully!');
+      }
+    } catch (err) {
+      console.error('Error updating product:', err);
+      error('Failed to update product. Please try again.');
     }
   };
 
   const handleDeleteProduct = async (id: string) => {
     if (window.confirm(t('inventory.confirmDelete'))) {
-      const db = Database.getInstance();
-      await db.delete('products', id);
-      setProducts(products.filter(p => p.id !== id));
+      try {
+        const db = Database.getInstance();
+        await db.delete('products', id);
+        setProducts(products.filter(p => p.id !== id));
+        success('Product deleted successfully!');
+      } catch (err) {
+        console.error('Error deleting product:', err);
+        error('Failed to delete product. Please try again.');
+      }
     }
   };
 

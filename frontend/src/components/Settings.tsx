@@ -11,9 +11,11 @@ import {
   Save
 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useToast } from '../contexts/ToastContext';
 
 const Settings: React.FC = () => {
   const { t } = useLanguage();
+  const { success, error } = useToast();
   const [activeTab, setActiveTab] = useState('business');
   const [businessInfo, setBusinessInfo] = useState({
     name: 'Golden Jewelers',
@@ -47,7 +49,7 @@ const Settings: React.FC = () => {
   ];
 
   const handleSave = () => {
-    alert(t('settings.settingsSavedSuccessfully'));
+    success(t('settings.settingsSavedSuccessfully'));
   };
 
   return (

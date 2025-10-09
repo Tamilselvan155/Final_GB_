@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Receipt,
   Plus,
   Search,
   User,
@@ -12,12 +11,15 @@ import {
   FileText,
   CreditCard
 } from 'lucide-react';
+import jsPDF from 'jspdf';
 import Database from '../utils/database';
 import { Product, Bill, Invoice, InvoiceItem, Customer } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useToast } from '../contexts/ToastContext';
 
 const Billing: React.FC = () => {
   const { t } = useLanguage();
+  const { success, error, loading, dismiss } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [currentBill, setCurrentBill] = useState<Partial<Bill>>({
@@ -37,7 +39,7 @@ const Billing: React.FC = () => {
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [recentBills, setRecentBills] = useState<Bill[]>([]);
   const [recentInvoices, setRecentInvoices] = useState<Invoice[]>([]);
-  const [activeTab, setActiveTab] = useState<'billing' | 'invoice'>('billing');
+  const [activeTab, setActiveTab] = useState<'billing' | 'invoice'>('invoice');
 
   useEffect(() => {
     loadData();
@@ -59,11 +61,11 @@ const Billing: React.FC = () => {
       
       setProducts(productData.filter((p: Product) => p.status === 'active'));
       setCustomers(customerData);
-      setRecentBills(billData.slice(-10).reverse());
-      setRecentInvoices(invoiceData.slice(-10).reverse());
-    } catch (error) {
-      console.error('Error loading data:', error);
-      alert('Failed to load data. Please try again.');
+      setRecentBills(billData.reverse());
+      setRecentInvoices(invoiceData.reverse());
+    } catch (err) {
+      console.error('Error loading data:', err);
+      error('Failed to load data. Please try again.');
     }
   };
 
@@ -154,15 +156,26 @@ const Billing: React.FC = () => {
 
   const saveBill = async () => {
     if (!currentBill.items?.length) {
-      alert('Please add at least one item to the bill');
+      error('Please add at least one item to the bill');
       return;
     }
 
     if (!selectedCustomer && !currentBill.customer_name) {
-      alert('Please select a customer or enter customer details');
+      error('Please select a customer or enter customer details');
       return;
     }
 
+    // Check stock availability before creating bill (now deducts stock)
+    for (const item of currentBill.items || []) {
+      const product = products.find(p => p.id === item.product_id);
+      if (product && product.stock_quantity < item.quantity) {
+        error(`Insufficient stock for ${item.product_name}. Available: ${product.stock_quantity}, Required: ${item.quantity}`);
+        return;
+      }
+    }
+
+    loading('Creating bill...');
+    
     try {
       const db = Database.getInstance();
       const billNumber = `BILL-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
@@ -188,6 +201,16 @@ const Billing: React.FC = () => {
 
       await db.createBill(billData);
       
+      // Deduct inventory for each item (now deducts stock)
+      for (const item of currentBill.items || []) {
+        const product = products.find(p => p.id === item.product_id);
+        if (product) {
+          await db.updateProduct(item.product_id, {
+            stock_quantity: product.stock_quantity - item.quantity
+          });
+        }
+      }
+      
       // Reset the form
       setCurrentBill({
         items: [],
@@ -206,32 +229,27 @@ const Billing: React.FC = () => {
       // Reload recent bills
       await loadData();
       
-      alert('Bill saved successfully!');
-    } catch (error) {
-      console.error('Error saving bill:', error);
-      alert('Failed to save bill. Please try again.');
+      success('Bill saved successfully and inventory updated!');
+    } catch (err) {
+      console.error('Error saving bill:', err);
+      error('Failed to save bill. Please try again.');
+    } finally {
+      dismiss();
     }
   };
 
   const saveInvoice = async () => {
     if (!currentBill.items?.length) {
-      alert('Please add at least one item to the invoice');
+      error('Please add at least one item to the invoice');
       return;
     }
 
     if (!selectedCustomer && !currentBill.customer_name) {
-      alert('Please select a customer or enter customer details');
+      error('Please select a customer or enter customer details');
       return;
     }
 
-    // Check stock availability before creating invoice
-    for (const item of currentBill.items || []) {
-      const product = products.find(p => p.id === item.product_id);
-      if (product && product.stock_quantity < item.quantity) {
-        alert(`Insufficient stock for ${item.product_name}. Available: ${product.stock_quantity}, Required: ${item.quantity}`);
-        return;
-      }
-    }
+    loading('Creating invoice...');
 
     try {
       const db = Database.getInstance();
@@ -258,16 +276,6 @@ const Billing: React.FC = () => {
 
       await db.createInvoice(invoiceData);
       
-      // Deduct inventory for each item
-      for (const item of currentBill.items || []) {
-        const product = products.find(p => p.id === item.product_id);
-        if (product) {
-          await db.updateProduct(item.product_id, {
-            stock_quantity: product.stock_quantity - item.quantity
-          });
-        }
-      }
-      
       // Reset the form
       setCurrentBill({
         items: [],
@@ -286,10 +294,12 @@ const Billing: React.FC = () => {
       // Reload data
       await loadData();
       
-      alert('Invoice saved successfully and inventory updated!');
-    } catch (error) {
-      console.error('Error saving invoice:', error);
-      alert('Failed to save invoice. Please try again.');
+      success('Invoice saved successfully!');
+    } catch (err) {
+      console.error('Error saving invoice:', err);
+      error('Failed to save invoice. Please try again.');
+    } finally {
+      dismiss();
     }
   };
 
@@ -306,7 +316,7 @@ const Billing: React.FC = () => {
 
     const handleAddCustomer = async () => {
       if (!newCustomer.name || !newCustomer.phone) {
-        alert('Name and phone are required');
+        error('Name and phone are required');
         return;
       }
 
@@ -316,9 +326,10 @@ const Billing: React.FC = () => {
         setCustomers([...customers, customerData]);
         onSelect(customerData);
         onClose();
-      } catch (error) {
-        console.error('Error creating customer:', error);
-        alert('Failed to create customer. Please try again.');
+        success('Customer created successfully!');
+      } catch (err) {
+        console.error('Error creating customer:', err);
+        error('Failed to create customer. Please try again.');
       }
     };
 
@@ -411,6 +422,204 @@ const Billing: React.FC = () => {
     product.sku.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const generateBillPDF = (bill: Bill) => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    let yPosition = 20;
+
+    // Header
+    doc.setFontSize(24);
+    doc.setFont('helvetica', 'bold');
+    doc.text('GOLD BILLING PRO', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 10;
+
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'normal');
+    doc.text('BILL', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 20;
+
+    // Bill Details
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Bill Number: ${bill.bill_number}`, margin, yPosition);
+    yPosition += 8;
+    doc.text(`Date: ${new Date(bill.created_at).toLocaleDateString('en-IN')}`, margin, yPosition);
+    yPosition += 8;
+    doc.text(`Customer: ${bill.customer_name}`, margin, yPosition);
+    yPosition += 8;
+    if (bill.customer_phone) {
+      doc.text(`Phone: ${bill.customer_phone}`, margin, yPosition);
+      yPosition += 8;
+    }
+    yPosition += 10;
+
+    // Items Table Header
+    doc.setFont('helvetica', 'bold');
+    doc.text('Item', margin, yPosition);
+    doc.text('Weight (g)', margin + 60, yPosition);
+    doc.text('Rate', margin + 90, yPosition);
+    doc.text('Qty', margin + 120, yPosition);
+    doc.text('Total', margin + 140, yPosition);
+    yPosition += 8;
+
+    // Draw line
+    doc.line(margin, yPosition, pageWidth - margin, yPosition);
+    yPosition += 5;
+
+    // Items
+    doc.setFont('helvetica', 'normal');
+    if (bill.items && Array.isArray(bill.items)) {
+      bill.items.forEach((item: any) => {
+        doc.text(item.product_name || 'N/A', margin, yPosition);
+        doc.text(item.weight?.toString() || '0', margin + 60, yPosition);
+        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, margin + 90, yPosition);
+        doc.text(item.quantity?.toString() || '1', margin + 120, yPosition);
+        doc.text(`₹${item.total?.toLocaleString() || '0'}`, margin + 140, yPosition);
+        yPosition += 8;
+      });
+    }
+
+    yPosition += 10;
+    doc.line(margin, yPosition, pageWidth - margin, yPosition);
+    yPosition += 10;
+
+    // Totals
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Subtotal: ₹${bill.subtotal?.toLocaleString() || '0'}`, margin + 100, yPosition);
+    yPosition += 8;
+    if (bill.discount_amount && bill.discount_amount > 0) {
+      doc.text(`Discount (${bill.discount_percentage}%): -₹${bill.discount_amount.toLocaleString()}`, margin + 100, yPosition);
+      yPosition += 8;
+    }
+    if (bill.tax_amount && bill.tax_amount > 0) {
+      doc.text(`Tax (${bill.tax_percentage}%): ₹${bill.tax_amount.toLocaleString()}`, margin + 100, yPosition);
+      yPosition += 8;
+    }
+    doc.setFontSize(14);
+    doc.text(`Total Amount: ₹${bill.total_amount?.toLocaleString() || '0'}`, margin + 100, yPosition);
+    yPosition += 15;
+
+    // Payment Details
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Payment Method: ${bill.payment_method?.toUpperCase() || 'CASH'}`, margin, yPosition);
+    yPosition += 8;
+    doc.text(`Payment Status: ${bill.payment_status?.toUpperCase() || 'PENDING'}`, margin, yPosition);
+    if (bill.amount_paid && bill.amount_paid > 0) {
+      yPosition += 8;
+      doc.text(`Amount Paid: ₹${bill.amount_paid.toLocaleString()}`, margin, yPosition);
+    }
+
+    // Footer
+    yPosition = doc.internal.pageSize.getHeight() - 30;
+    doc.setFontSize(10);
+    doc.text('Thank you for your business!', pageWidth / 2, yPosition, { align: 'center' });
+
+    // Download
+    doc.save(`Bill-${bill.bill_number}.pdf`);
+    success('Bill PDF downloaded successfully!');
+  };
+
+  const generateInvoicePDF = (invoice: Invoice) => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    let yPosition = 20;
+
+    // Header
+    doc.setFontSize(24);
+    doc.setFont('helvetica', 'bold');
+    doc.text('GOLD BILLING PRO', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 10;
+
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'normal');
+    doc.text('INVOICE', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 20;
+
+    // Invoice Details
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Invoice Number: ${invoice.invoice_number}`, margin, yPosition);
+    yPosition += 8;
+    doc.text(`Date: ${new Date(invoice.created_at).toLocaleDateString('en-IN')}`, margin, yPosition);
+    yPosition += 8;
+    doc.text(`Customer: ${invoice.customer_name}`, margin, yPosition);
+    yPosition += 8;
+    if (invoice.customer_phone) {
+      doc.text(`Phone: ${invoice.customer_phone}`, margin, yPosition);
+      yPosition += 8;
+    }
+    yPosition += 10;
+
+    // Items Table Header
+    doc.setFont('helvetica', 'bold');
+    doc.text('Item', margin, yPosition);
+    doc.text('Weight (g)', margin + 60, yPosition);
+    doc.text('Rate', margin + 90, yPosition);
+    doc.text('Qty', margin + 120, yPosition);
+    doc.text('Total', margin + 140, yPosition);
+    yPosition += 8;
+
+    // Draw line
+    doc.line(margin, yPosition, pageWidth - margin, yPosition);
+    yPosition += 5;
+
+    // Items
+    doc.setFont('helvetica', 'normal');
+    if (invoice.items && Array.isArray(invoice.items)) {
+      invoice.items.forEach((item: any) => {
+        doc.text(item.product_name || 'N/A', margin, yPosition);
+        doc.text(item.weight?.toString() || '0', margin + 60, yPosition);
+        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, margin + 90, yPosition);
+        doc.text(item.quantity?.toString() || '1', margin + 120, yPosition);
+        doc.text(`₹${item.total?.toLocaleString() || '0'}`, margin + 140, yPosition);
+        yPosition += 8;
+      });
+    }
+
+    yPosition += 10;
+    doc.line(margin, yPosition, pageWidth - margin, yPosition);
+    yPosition += 10;
+
+    // Totals
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Subtotal: ₹${invoice.subtotal?.toLocaleString() || '0'}`, margin + 100, yPosition);
+    yPosition += 8;
+    if (invoice.discount_amount && invoice.discount_amount > 0) {
+      doc.text(`Discount (${invoice.discount_percentage}%): -₹${invoice.discount_amount.toLocaleString()}`, margin + 100, yPosition);
+      yPosition += 8;
+    }
+    if (invoice.tax_amount && invoice.tax_amount > 0) {
+      doc.text(`Tax (${invoice.tax_percentage}%): ₹${invoice.tax_amount.toLocaleString()}`, margin + 100, yPosition);
+      yPosition += 8;
+    }
+    doc.setFontSize(14);
+    doc.text(`Total Amount: ₹${invoice.total_amount?.toLocaleString() || '0'}`, margin + 100, yPosition);
+    yPosition += 15;
+
+    // Payment Details
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Payment Method: ${invoice.payment_method?.toUpperCase() || 'CASH'}`, margin, yPosition);
+    yPosition += 8;
+    doc.text(`Payment Status: ${invoice.payment_status?.toUpperCase() || 'PENDING'}`, margin, yPosition);
+    if (invoice.amount_paid && invoice.amount_paid > 0) {
+      yPosition += 8;
+      doc.text(`Amount Paid: ₹${invoice.amount_paid.toLocaleString()}`, margin, yPosition);
+    }
+
+    // Footer
+    yPosition = doc.internal.pageSize.getHeight() - 30;
+    doc.setFontSize(10);
+    doc.text('Thank you for your business!', pageWidth / 2, yPosition, { align: 'center' });
+
+    // Download
+    doc.save(`Invoice-${invoice.invoice_number}.pdf`);
+    success('Invoice PDF downloaded successfully!');
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -427,17 +636,17 @@ const Billing: React.FC = () => {
           {activeTab === 'billing' ? (
             <button
               onClick={saveBill}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
             >
-              <FileText className="h-4 w-4" />
-              <span>Save Bill</span>
+              <CreditCard className="h-4 w-4" />
+              <span>Create Bill</span>
             </button>
           ) : (
             <button
               onClick={saveInvoice}
-              className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
-              <Receipt className="h-4 w-4" />
+              <FileText className="h-4 w-4" />
               <span>Create Invoice</span>
             </button>
           )}
@@ -451,23 +660,23 @@ const Billing: React.FC = () => {
             onClick={() => setActiveTab('billing')}
             className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
               activeTab === 'billing'
-                ? 'bg-blue-500 text-white'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <FileText className="h-4 w-4" />
-            <span>Billing (Quote/Estimate)</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('invoice')}
-            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
-              activeTab === 'invoice'
                 ? 'bg-amber-500 text-white'
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
             <CreditCard className="h-4 w-4" />
-            <span>Invoice (Deduct Stock)</span>
+            <span>Billing (Deduct Stock)</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('invoice')}
+            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+              activeTab === 'invoice'
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            <span>Invoice (Quote/Estimate)</span>
           </button>
         </div>
       </div>
@@ -554,7 +763,7 @@ const Billing: React.FC = () => {
                       <p className="text-sm font-medium text-amber-600">
                         ₹{((product.weight * product.current_rate) + product.making_charge).toLocaleString()}
                       </p>
-                      {activeTab === 'invoice' && (
+                      {activeTab === 'billing' && (
                         <p className="text-xs text-gray-500">Stock: {product.stock_quantity}</p>
                       )}
                     </div>
@@ -568,9 +777,9 @@ const Billing: React.FC = () => {
           {/* Bill/Invoice Items */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">
-                {activeTab === 'billing' ? 'Bill Items' : 'Invoice Items'}
-              </h2>
+            <h2 className="text-lg font-semibold text-gray-900">
+              {activeTab === 'billing' ? 'Bill Items (Deduct Stock)' : 'Invoice Items (Quote/Estimate)'}
+            </h2>
             </div>
             
             <div className="overflow-x-auto">
@@ -591,7 +800,7 @@ const Billing: React.FC = () => {
                       <td className="px-6 py-4">
                         <p className="font-medium text-gray-900">{item.product_name}</p>
                         <p className="text-sm text-gray-600">Making: ₹{item.making_charge}</p>
-                        {activeTab === 'invoice' && (
+                        {activeTab === 'billing' && (
                           <p className="text-xs text-gray-500">
                             Stock: {products.find(p => p.id === item.product_id)?.stock_quantity || 0}
                           </p>
@@ -663,7 +872,7 @@ const Billing: React.FC = () => {
                 <div className="text-center py-8">
                   <ShoppingCart className="h-12 w-12 mx-auto text-gray-300 mb-4" />
                   <p className="text-gray-500">
-                    No items added to {activeTab === 'billing' ? 'bill' : 'invoice'}
+                    No items added to {activeTab === 'billing' ? 'bill (deduct stock)' : 'invoice (quote/estimate)'}
                   </p>
                 </div>
               )}
@@ -676,7 +885,7 @@ const Billing: React.FC = () => {
           {/* Calculation Panel */}
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              {activeTab === 'billing' ? 'Bill Summary' : 'Invoice Summary'}
+              {activeTab === 'billing' ? 'Bill Summary (Deduct Stock)' : 'Invoice Summary (Quote/Estimate)'}
             </h2>
             
             <div className="space-y-4">
@@ -798,48 +1007,71 @@ const Billing: React.FC = () => {
             </div>
           </div>
 
-          {/* Recent Bills/Invoices */}
+          {/* All Bills/Invoices */}
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Recent {activeTab === 'billing' ? 'Bills' : 'Invoices'}
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">
+                All {activeTab === 'billing' ? 'Bills' : 'Invoices'}
+              </h2>
+              <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full">
+                {activeTab === 'billing' ? recentBills.length : recentInvoices.length} {activeTab === 'billing' ? 'bills' : 'invoices'}
+              </span>
+            </div>
             
-            <div className="space-y-3 max-h-64 overflow-y-auto">
+            <div className="space-y-3 max-h-96 overflow-y-auto">
               {activeTab === 'billing' ? (
                 recentBills.map((bill) => (
                   <div key={bill.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                    <div>
+                    <div className="flex-1">
                       <p className="font-medium text-gray-900">{bill.bill_number}</p>
                       <p className="text-sm text-gray-600">{bill.customer_name}</p>
                     </div>
-                    <div className="text-right">
-                      <p className="font-medium">₹{bill.total_amount.toLocaleString()}</p>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        bill.payment_status === 'paid' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {bill.payment_status}
-                      </span>
+                    <div className="flex items-center space-x-3">
+                      <div className="text-right">
+                        <p className="font-medium">₹{bill.total_amount.toLocaleString()}</p>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          bill.payment_status === 'paid' 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {bill.payment_status}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => generateBillPDF(bill)}
+                        className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors"
+                        title="Download Bill PDF"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
                 ))
               ) : (
                 recentInvoices.map((invoice) => (
                   <div key={invoice.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                    <div>
+                    <div className="flex-1">
                       <p className="font-medium text-gray-900">{invoice.invoice_number}</p>
                       <p className="text-sm text-gray-600">{invoice.customer_name}</p>
                     </div>
-                    <div className="text-right">
-                      <p className="font-medium">₹{invoice.total_amount.toLocaleString()}</p>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        invoice.payment_status === 'paid' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {invoice.payment_status}
-                      </span>
+                    <div className="flex items-center space-x-3">
+                      <div className="text-right">
+                        <p className="font-medium">₹{invoice.total_amount.toLocaleString()}</p>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          invoice.payment_status === 'paid' 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {invoice.payment_status}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => generateInvoicePDF(invoice)}
+                        className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Download Invoice PDF"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
                 ))
@@ -848,7 +1080,7 @@ const Billing: React.FC = () => {
                 (activeTab === 'invoice' && recentInvoices.length === 0)) && (
                 <div className="text-center py-8">
                   <p className="text-gray-500">
-                    No recent {activeTab === 'billing' ? 'bills' : 'invoices'} found
+                    No {activeTab === 'billing' ? 'bills' : 'invoices'} found
                   </p>
                 </div>
               )}
