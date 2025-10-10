@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus,
   Search,
@@ -9,7 +9,8 @@ import {
   Check,
   X,
   FileText,
-  CreditCard
+  CreditCard,
+  Scan
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import Database from '../utils/database';
@@ -40,6 +41,14 @@ const Billing: React.FC = () => {
   const [recentBills, setRecentBills] = useState<Bill[]>([]);
   const [recentInvoices, setRecentInvoices] = useState<Invoice[]>([]);
   const [activeTab, setActiveTab] = useState<'billing' | 'invoice'>('invoice');
+  
+  // Barcode scanner states
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [barcodeCache, setBarcodeCache] = useState<Map<string, Product>>(new Map());
+  const [recentlyScanned, setRecentlyScanned] = useState<Set<string>>(new Set());
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadData();
@@ -63,6 +72,9 @@ const Billing: React.FC = () => {
       setCustomers(customerData);
       setRecentBills(billData.reverse());
       setRecentInvoices(invoiceData.reverse());
+      
+      // Clear barcode cache when products are reloaded
+      setBarcodeCache(new Map());
     } catch (err) {
       console.error('Error loading data:', err);
       error('Failed to load data. Please try again.');
@@ -154,14 +166,157 @@ const Billing: React.FC = () => {
     }));
   };
 
+  // Barcode scanner functions
+  // This implementation handles both dedicated barcode scanner hardware and manual input
+  // Barcode scanners typically send input as rapid keyboard events, which this handles
+  // with a timeout-based approach to distinguish between scanner and manual input
+  
+  const validateBarcode = (barcode: string): boolean => {
+    // Basic barcode validation - can be enhanced based on barcode types
+    if (!barcode || barcode.length < 3) return false;
+    
+    // Check if barcode contains only alphanumeric characters and common barcode characters
+    const barcodeRegex = /^[A-Za-z0-9\-_]+$/;
+    return barcodeRegex.test(barcode);
+  };
+
+  const findProductByBarcode = async (barcode: string): Promise<Product | null> => {
+    // Check cache first
+    if (barcodeCache.has(barcode)) {
+      return barcodeCache.get(barcode) || null;
+    }
+
+    // Search in products array
+    const product = products.find(p => p.barcode === barcode);
+    if (product) {
+      // Cache the result
+      setBarcodeCache(prev => new Map(prev).set(barcode, product));
+      return product;
+    }
+
+    return null;
+  };
+
+  const handleBarcodeInput = async (value: string) => {
+    setBarcodeInput(value);
+    
+    // Clear existing timeout
+    if (barcodeTimeoutRef.current) {
+      clearTimeout(barcodeTimeoutRef.current);
+    }
+
+    // Set a timeout to process barcode after user stops typing (typical barcode scanner behavior)
+    barcodeTimeoutRef.current = setTimeout(async () => {
+      if (value.trim()) {
+        await processBarcode(value.trim());
+      }
+    }, 100); // 100ms delay to handle rapid barcode scanner input
+  };
+
+  const processBarcode = async (barcode: string) => {
+    if (!validateBarcode(barcode)) {
+      error(t('billing.invalidBarcode'));
+      setBarcodeInput('');
+      return;
+    }
+
+    setIsScanning(true);
+    
+    try {
+      const product = await findProductByBarcode(barcode);
+      
+      if (product) {
+        // Check if product is active
+        if (product.status !== 'active') {
+          error('Product is inactive');
+          setBarcodeInput('');
+          return;
+        }
+
+        // Check stock availability for billing
+        if (activeTab === 'billing' && product.stock_quantity <= 0) {
+          error(`Product "${product.name}" is out of stock`);
+          setBarcodeInput('');
+          return;
+        }
+
+        // Add product to bill/invoice
+        addProductToBill(product);
+        
+        // Track recently scanned product
+        setRecentlyScanned(prev => new Set(prev).add(product.id));
+        
+        // Clear recently scanned indicator after 3 seconds
+        setTimeout(() => {
+          setRecentlyScanned(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(product.id);
+            return newSet;
+          });
+        }, 3000);
+        
+        success(t('billing.scanSuccess'));
+        setBarcodeInput('');
+      } else {
+        error(t('billing.barcodeNotFound'));
+        setBarcodeInput('');
+      }
+    } catch (err) {
+      console.error('Error processing barcode:', err);
+      error('Error processing barcode. Please try again.');
+      setBarcodeInput('');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Handle Enter key for manual barcode entry
+    if (e.key === 'Enter' && barcodeInput.trim()) {
+      e.preventDefault();
+      processBarcode(barcodeInput.trim());
+    }
+  };
+
+  // Focus barcode input on component mount
+  useEffect(() => {
+    if (barcodeInputRef.current) {
+      barcodeInputRef.current.focus();
+    }
+  }, []);
+
+  // Keyboard shortcut to focus barcode scanner (Ctrl/Cmd + B)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+        e.preventDefault();
+        if (barcodeInputRef.current) {
+          barcodeInputRef.current.focus();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (barcodeTimeoutRef.current) {
+        clearTimeout(barcodeTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const saveBill = async () => {
     if (!currentBill.items?.length) {
-      error('Please add at least one item to the bill');
+      error(t('billing.addAtLeastOneItem'));
       return;
     }
 
     if (!selectedCustomer && !currentBill.customer_name) {
-      error('Please select a customer or enter customer details');
+      error(t('billing.selectCustomerOrEnter'));
       return;
     }
 
@@ -240,12 +395,12 @@ const Billing: React.FC = () => {
 
   const saveInvoice = async () => {
     if (!currentBill.items?.length) {
-      error('Please add at least one item to the invoice');
+      error(t('billing.addAtLeastOneItem'));
       return;
     }
 
     if (!selectedCustomer && !currentBill.customer_name) {
-      error('Please select a customer or enter customer details');
+      error(t('billing.selectCustomerOrEnter'));
       return;
     }
 
@@ -316,7 +471,7 @@ const Billing: React.FC = () => {
 
     const handleAddCustomer = async () => {
       if (!newCustomer.name || !newCustomer.phone) {
-        error('Name and phone are required');
+        error(t('billing.nameAndPhoneRequired'));
         return;
       }
 
@@ -338,7 +493,7 @@ const Billing: React.FC = () => {
         <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">Select Customer</h2>
+              <h2 className="text-xl font-bold text-gray-900">{t('billing.selectCustomer')}</h2>
               <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
                 <X className="h-5 w-5" />
               </button>
@@ -348,32 +503,32 @@ const Billing: React.FC = () => {
           <div className="p-6 space-y-6">
             {/* Add New Customer */}
             <div className="border border-gray-200 rounded-lg p-4">
-              <h3 className="font-medium text-gray-900 mb-4">Add New Customer</h3>
+              <h3 className="font-medium text-gray-900 mb-4">{t('billing.addNewCustomer')}</h3>
               <div className="grid grid-cols-2 gap-4">
                 <input
                   type="text"
-                  placeholder="Full Name *"
+                  placeholder={`${t('billing.fullName')} *`}
                   value={newCustomer.name}
                   onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                 />
                 <input
                   type="tel"
-                  placeholder="Phone Number *"
+                  placeholder={`${t('billing.phoneNumber')} *`}
                   value={newCustomer.phone}
                   onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                 />
                 <input
                   type="email"
-                  placeholder="Email (Optional)"
+                  placeholder={t('billing.emailOptional')}
                   value={newCustomer.email}
                   onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                 />
                 <input
                   type="text"
-                  placeholder="Address (Optional)"
+                  placeholder={t('billing.addressOptional')}
                   value={newCustomer.address}
                   onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
@@ -383,13 +538,13 @@ const Billing: React.FC = () => {
                 onClick={handleAddCustomer}
                 className="mt-4 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
               >
-                Add Customer
+                {t('billing.addCustomer')}
               </button>
             </div>
 
             {/* Existing Customers */}
             <div>
-              <h3 className="font-medium text-gray-900 mb-4">Existing Customers</h3>
+              <h3 className="font-medium text-gray-900 mb-4">{t('billing.existingCustomers')}</h3>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {customers.map((customer) => (
                   <div
@@ -639,7 +794,7 @@ const Billing: React.FC = () => {
               className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
             >
               <CreditCard className="h-4 w-4" />
-              <span>Create Bill</span>
+              <span>{t('billing.createBill')}</span>
             </button>
           ) : (
             <button
@@ -647,7 +802,7 @@ const Billing: React.FC = () => {
               className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
               <FileText className="h-4 w-4" />
-              <span>Create Invoice</span>
+              <span>{t('billing.createInvoice')}</span>
             </button>
           )}
         </div>
@@ -665,7 +820,7 @@ const Billing: React.FC = () => {
             }`}
           >
             <CreditCard className="h-4 w-4" />
-            <span>Billing (Deduct Stock)</span>
+            <span>{t('billing.billingDeductStock')}</span>
           </button>
           <button
             onClick={() => setActiveTab('invoice')}
@@ -676,7 +831,7 @@ const Billing: React.FC = () => {
             }`}
           >
             <FileText className="h-4 w-4" />
-            <span>Invoice (Quote/Estimate)</span>
+            <span>{t('billing.invoiceQuoteEstimate')}</span>
           </button>
         </div>
       </div>
@@ -687,13 +842,13 @@ const Billing: React.FC = () => {
           {/* Customer Selection */}
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Customer Information</h2>
+              <h2 className="text-lg font-semibold text-gray-900">{t('billing.customerInformation')}</h2>
               <button
                 onClick={() => setShowCustomerModal(true)}
                 className="flex items-center space-x-2 px-3 py-2 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors"
               >
                 <User className="h-4 w-4" />
-                <span>Select Customer</span>
+                <span>{t('billing.selectCustomer')}</span>
               </button>
             </div>
             
@@ -717,14 +872,14 @@ const Billing: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <input
                   type="text"
-                  placeholder="Customer Name"
+                  placeholder={t('billing.customerName')}
                   value={currentBill.customer_name || ''}
                   onChange={(e) => setCurrentBill(prev => ({ ...prev, customer_name: e.target.value }))}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                 />
                 <input
                   type="tel"
-                  placeholder="Phone Number"
+                  placeholder={t('billing.phoneNumber')}
                   value={currentBill.customer_phone || ''}
                   onChange={(e) => setCurrentBill(prev => ({ ...prev, customer_phone: e.target.value }))}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
@@ -733,15 +888,60 @@ const Billing: React.FC = () => {
             )}
           </div>
 
+          {/* Barcode Scanner */}
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">{t('billing.barcodeScanner')}</h2>
+              <div className="flex items-center space-x-2">
+                <Scan className="h-5 w-5 text-amber-500" />
+                {isScanning && (
+                  <div className="flex items-center space-x-2 text-amber-600">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent"></div>
+                    <span className="text-sm">{t('billing.scanning')}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">{t('billing.scanInstructions')}</p>
+                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                  Ctrl+B to focus
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  ref={barcodeInputRef}
+                  type="text"
+                  placeholder={t('billing.barcodePlaceholder')}
+                  value={barcodeInput}
+                  onChange={(e) => handleBarcodeInput(e.target.value)}
+                  onKeyDown={handleBarcodeKeyDown}
+                  className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-lg font-mono"
+                  disabled={isScanning}
+                  title="Scan barcode or type manually. Press Enter to process."
+                />
+                <div className="absolute right-3 top-3">
+                  {isScanning ? (
+                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-amber-500 border-t-transparent"></div>
+                  ) : (
+                    <Scan className="h-5 w-5 text-gray-400" />
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Product Search */}
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Add Products</h2>
+              <h2 className="text-lg font-semibold text-gray-900">{t('billing.addProducts')}</h2>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search products..."
+                  placeholder={t('billing.searchProducts')}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 w-64"
@@ -754,17 +954,32 @@ const Billing: React.FC = () => {
                 <div
                   key={product.id}
                   onClick={() => addProductToBill(product)}
-                  className="p-4 border border-gray-200 rounded-lg cursor-pointer hover:bg-amber-50 hover:border-amber-300 transition-colors"
+                  className={`p-4 border rounded-lg cursor-pointer transition-all duration-300 ${
+                    recentlyScanned.has(product.id)
+                      ? 'border-green-300 bg-green-50 shadow-md'
+                      : 'border-gray-200 hover:bg-amber-50 hover:border-amber-300'
+                  }`}
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-medium text-gray-900">{product.name}</p>
+                      <div className="flex items-center space-x-2">
+                        <p className="font-medium text-gray-900">{product.name}</p>
+                        {recentlyScanned.has(product.id) && (
+                          <div className="flex items-center space-x-1">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-green-600 font-medium">Scanned</span>
+                          </div>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-600">{product.weight}g • {product.purity}</p>
                       <p className="text-sm font-medium text-amber-600">
                         ₹{((product.weight * product.current_rate) + product.making_charge).toLocaleString()}
                       </p>
                       {activeTab === 'billing' && (
                         <p className="text-xs text-gray-500">Stock: {product.stock_quantity}</p>
+                      )}
+                      {product.barcode && (
+                        <p className="text-xs text-gray-400 font-mono">Barcode: {product.barcode}</p>
                       )}
                     </div>
                     <Plus className="h-5 w-5 text-amber-500" />
@@ -778,7 +993,7 @@ const Billing: React.FC = () => {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="p-6 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">
-              {activeTab === 'billing' ? 'Bill Items (Deduct Stock)' : 'Invoice Items (Quote/Estimate)'}
+              {activeTab === 'billing' ? t('billing.billItemsDeductStock') : t('billing.invoiceItemsQuoteEstimate')}
             </h2>
             </div>
             
@@ -786,12 +1001,12 @@ const Billing: React.FC = () => {
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">Item</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">Weight</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">Rate</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">Qty</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">Total</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">Action</th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.item')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.weight')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.rate')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.qty')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.total')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.action')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -799,10 +1014,10 @@ const Billing: React.FC = () => {
                     <tr key={item.id}>
                       <td className="px-6 py-4">
                         <p className="font-medium text-gray-900">{item.product_name}</p>
-                        <p className="text-sm text-gray-600">Making: ₹{item.making_charge}</p>
+                        <p className="text-sm text-gray-600">{t('billing.making')}: ₹{item.making_charge}</p>
                         {activeTab === 'billing' && (
                           <p className="text-xs text-gray-500">
-                            Stock: {products.find(p => p.id === item.product_id)?.stock_quantity || 0}
+                            {t('billing.stock')}: {products.find(p => p.id === item.product_id)?.stock_quantity || 0}
                           </p>
                         )}
                       </td>
@@ -872,7 +1087,7 @@ const Billing: React.FC = () => {
                 <div className="text-center py-8">
                   <ShoppingCart className="h-12 w-12 mx-auto text-gray-300 mb-4" />
                   <p className="text-gray-500">
-                    No items added to {activeTab === 'billing' ? 'bill (deduct stock)' : 'invoice (quote/estimate)'}
+                    {t('billing.noItemsAdded')}
                   </p>
                 </div>
               )}
@@ -885,17 +1100,17 @@ const Billing: React.FC = () => {
           {/* Calculation Panel */}
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              {activeTab === 'billing' ? 'Bill Summary (Deduct Stock)' : 'Invoice Summary (Quote/Estimate)'}
+              {activeTab === 'billing' ? t('billing.billSummaryDeductStock') : t('billing.invoiceSummaryQuoteEstimate')}
             </h2>
             
             <div className="space-y-4">
               <div className="flex justify-between">
-                <span className="text-gray-600">Subtotal:</span>
+                <span className="text-gray-600">{t('billing.subtotal')}:</span>
                 <span className="font-medium">₹{(currentBill.subtotal || 0).toLocaleString()}</span>
               </div>
               
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Discount:</span>
+                <span className="text-gray-600">{t('billing.discount')}:</span>
                 <div className="flex items-center space-x-2">
                   <input
                     type="number"
@@ -916,12 +1131,12 @@ const Billing: React.FC = () => {
               </div>
               
               <div className="flex justify-between">
-                <span className="text-gray-600">Discount Amount:</span>
+                <span className="text-gray-600">{t('billing.discountAmount')}:</span>
                 <span className="font-medium text-green-600">-₹{(currentBill.discount_amount || 0).toLocaleString()}</span>
               </div>
               
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">GST:</span>
+                <span className="text-gray-600">{t('billing.gst')}:</span>
                 <div className="flex items-center space-x-2">
                   <input
                     type="number"
@@ -942,13 +1157,13 @@ const Billing: React.FC = () => {
               </div>
               
               <div className="flex justify-between">
-                <span className="text-gray-600">Tax Amount:</span>
+                <span className="text-gray-600">{t('billing.taxAmount')}:</span>
                 <span className="font-medium">₹{(currentBill.tax_amount || 0).toLocaleString()}</span>
               </div>
               
               <div className="border-t pt-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-lg font-semibold text-gray-900">Total Amount:</span>
+                  <span className="text-lg font-semibold text-gray-900">{t('billing.totalAmount')}:</span>
                   <span className="text-xl font-bold text-amber-600">₹{(currentBill.total_amount || 0).toLocaleString()}</span>
                 </div>
               </div>
@@ -956,23 +1171,23 @@ const Billing: React.FC = () => {
               <div className="space-y-3 pt-4 border-t">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Payment Method
+                    {t('billing.paymentMethod')}
                   </label>
                   <select
                     value={currentBill.payment_method || 'cash'}
                     onChange={(e) => setCurrentBill(prev => ({ ...prev, payment_method: e.target.value as any }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                   >
-                    <option value="cash">Cash</option>
-                    <option value="card">Card</option>
-                    <option value="upi">UPI</option>
-                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="cash">{t('common.cash')}</option>
+                    <option value="card">{t('common.card')}</option>
+                    <option value="upi">{t('common.upi')}</option>
+                    <option value="bank_transfer">{t('common.bankTransfer')}</option>
                   </select>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Amount Paid
+                    {t('billing.amountPaid')}
                   </label>
                   <input
                     type="number"
@@ -991,16 +1206,16 @@ const Billing: React.FC = () => {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Payment Status
+                    {t('billing.paymentStatus')}
                   </label>
                   <select
                     value={currentBill.payment_status || 'pending'}
                     onChange={(e) => setCurrentBill(prev => ({ ...prev, payment_status: e.target.value as any }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
                   >
-                    <option value="pending">Pending</option>
-                    <option value="partial">Partial</option>
-                    <option value="paid">Paid</option>
+                    <option value="pending">{t('common.pending')}</option>
+                    <option value="partial">{t('common.partial')}</option>
+                    <option value="paid">{t('common.paid')}</option>
                   </select>
                 </div>
               </div>
@@ -1011,10 +1226,10 @@ const Billing: React.FC = () => {
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">
-                All {activeTab === 'billing' ? 'Bills' : 'Invoices'}
+                {activeTab === 'billing' ? t('billing.allBills') : t('billing.allInvoices')}
               </h2>
               <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full">
-                {activeTab === 'billing' ? recentBills.length : recentInvoices.length} {activeTab === 'billing' ? 'bills' : 'invoices'}
+                {activeTab === 'billing' ? recentBills.length : recentInvoices.length} {activeTab === 'billing' ? t('billing.bills') : t('billing.invoices')}
               </span>
             </div>
             
@@ -1080,7 +1295,7 @@ const Billing: React.FC = () => {
                 (activeTab === 'invoice' && recentInvoices.length === 0)) && (
                 <div className="text-center py-8">
                   <p className="text-gray-500">
-                    No {activeTab === 'billing' ? 'bills' : 'invoices'} found
+                    {activeTab === 'billing' ? t('billing.noBillsFound') : t('billing.noInvoicesFound')}
                   </p>
                 </div>
               )}
