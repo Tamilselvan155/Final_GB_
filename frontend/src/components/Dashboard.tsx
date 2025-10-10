@@ -32,8 +32,18 @@ const Dashboard: React.FC = () => {
     today_sales: 0,
     this_month_sales: 0,
   });
+  const [billStats, setBillStats] = useState({
+    totalBills: 0,
+    totalInvoices: 0,
+    totalExchangeBills: 0,
+    billsValue: 0,
+    invoicesValue: 0,
+    exchangeValue: 0
+  });
 
   const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
+  const [recentBills, setRecentBills] = useState<any[]>([]);
+  const [exchangeBills, setExchangeBills] = useState<any[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
   const [salesData, setSalesData] = useState<Array<{ month: string; sales: number }>>([]);
   const [categoryData, setCategoryData] = useState<Array<{ name: string; value: number; color: string }>>([]);
@@ -50,6 +60,7 @@ const Dashboard: React.FC = () => {
     totalTransactions: 0,
     averageSale: 0
   });
+  const [activeTab, setActiveTab] = useState<'all' | 'invoices' | 'bills' | 'exchange'>('all');
 
   useEffect(() => {
     loadDashboardData();
@@ -68,9 +79,9 @@ const Dashboard: React.FC = () => {
     
       // Load invoices, bills, and products
       const [invoices, bills, products] = await Promise.all([
-        db.query('invoices') as Invoice[],
-        db.query('bills') as any[],
-        db.query('products') as Product[]
+        db.query('invoices'),
+        db.query('bills'),
+        db.query('products')
       ]);
       
       // Validate and filter data
@@ -128,21 +139,53 @@ const Dashboard: React.FC = () => {
         this_month_sales: Math.round(thisMonthSales * 100) / 100,
       });
 
-      // Show recent invoices and bills combined
-      const recentSales = allSales
-        .filter(sale => sale.created_at) // Only include sales with valid dates
+      // Separate invoices, bills, and exchange bills
+      const recentInvoicesData = validInvoices
+        .filter(inv => inv.created_at)
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
         .slice(0, 10);
-      setRecentInvoices(recentSales);
-    setLowStockProducts(lowStock);
+      
+      const recentBillsData = validBills
+        .filter(bill => bill.created_at && !bill.bill_number?.startsWith('EXCH-'))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 10);
+      
+      const exchangeBillsData = validBills
+        .filter(bill => bill.created_at && bill.bill_number?.startsWith('EXCH-'))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 10);
+      
+      // Note: recentSales variable removed as it's no longer used
+      
+      setRecentInvoices(recentInvoicesData);
+      setRecentBills(recentBillsData);
+      setExchangeBills(exchangeBillsData);
+      setLowStockProducts(lowStock);
+      
+      // Calculate bill statistics from ALL data, not just recent 10
+      const allBills = validBills.filter(bill => !bill.bill_number?.startsWith('EXCH-'));
+      const allExchangeBills = validBills.filter(bill => bill.bill_number?.startsWith('EXCH-'));
+      
+      const billsValue = allBills.reduce((sum, bill) => sum + (typeof bill.total_amount === 'number' ? bill.total_amount : parseFloat(bill.total_amount) || 0), 0);
+      const invoicesValue = validInvoices.reduce((sum, invoice) => sum + (typeof invoice.total_amount === 'number' ? invoice.total_amount : parseFloat(invoice.total_amount) || 0), 0);
+      const exchangeValue = allExchangeBills.reduce((sum, bill) => sum + (typeof bill.total_amount === 'number' ? bill.total_amount : parseFloat(bill.total_amount) || 0), 0);
+      
+      setBillStats({
+        totalBills: allBills.length,
+        totalInvoices: validInvoices.length,
+        totalExchangeBills: allExchangeBills.length,
+        billsValue: Math.round(billsValue * 100) / 100,
+        invoicesValue: Math.round(invoicesValue * 100) / 100,
+        exchangeValue: Math.round(exchangeValue * 100) / 100
+      });
     
     // Calculate sales data for the last 6 months
       calculateSalesData(allSales);
     
     // Calculate category data from products
       calculateCategoryData(validProducts);
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
+    } catch (err) {
+      console.error('Error loading dashboard data:', err);
       error('Failed to load dashboard data. Please try again.');
     } finally {
       setIsLoading(false);
@@ -573,6 +616,66 @@ const Dashboard: React.FC = () => {
         />
       </div>
 
+      {/* Bill Statistics */}
+      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-gray-900">Transaction Statistics</h2>
+          <div className="text-sm text-gray-500">
+            All Time Summary
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Invoices Stats */}
+          <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-medium text-blue-900">Invoices</h3>
+              <div className="p-2 bg-blue-100 rounded-full">
+                <Receipt className="h-4 w-4 text-blue-600" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-2xl font-bold text-blue-700">{billStats.totalInvoices}</p>
+              <p className="text-sm text-blue-600">Total Invoices</p>
+              <p className="text-lg font-semibold text-blue-800">₹{billStats.invoicesValue.toLocaleString()}</p>
+              <p className="text-xs text-blue-600">Total Value</p>
+            </div>
+          </div>
+          
+          {/* Bills Stats */}
+          <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-medium text-amber-900">Bills</h3>
+              <div className="p-2 bg-amber-100 rounded-full">
+                <Receipt className="h-4 w-4 text-amber-600" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-2xl font-bold text-amber-700">{billStats.totalBills}</p>
+              <p className="text-sm text-amber-600">Total Bills</p>
+              <p className="text-lg font-semibold text-amber-800">₹{billStats.billsValue.toLocaleString()}</p>
+              <p className="text-xs text-amber-600">Total Value</p>
+            </div>
+          </div>
+          
+          {/* Exchange Bills Stats */}
+          <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-medium text-green-900">Exchange Bills</h3>
+              <div className="p-2 bg-green-100 rounded-full">
+                <Receipt className="h-4 w-4 text-green-600" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-2xl font-bold text-green-700">{billStats.totalExchangeBills}</p>
+              <p className="text-sm text-green-600">Total Exchanges</p>
+              <p className="text-lg font-semibold text-green-800">₹{billStats.exchangeValue.toLocaleString()}</p>
+              <p className="text-xs text-green-600">Total Value</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Filtered Sales Stats */}
       {filteredStats.totalSales > 0 && (
         <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-6 border border-amber-200">
@@ -662,49 +765,170 @@ const Dashboard: React.FC = () => {
         {/* Recent Sales (Invoices & Bills) */}
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-900">Recent Sales</h2>
-            <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full">
-              {recentInvoices.length} transactions
-            </span>
+            <h2 className="text-xl font-bold text-gray-900">Recent Transactions</h2>
+            <div className="flex items-center space-x-2">
+              <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full">
+                {activeTab === 'all' ? recentInvoices.length + recentBills.length + exchangeBills.length :
+                 activeTab === 'invoices' ? recentInvoices.length :
+                 activeTab === 'bills' ? recentBills.length :
+                 exchangeBills.length} transactions
+              </span>
+            </div>
           </div>
+          
+          {/* Transaction Type Tabs */}
+          <div className="flex space-x-1 mb-4 bg-gray-100 p-1 rounded-lg">
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                activeTab === 'all'
+                  ? 'bg-white text-amber-700 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setActiveTab('invoices')}
+              className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                activeTab === 'invoices'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Invoices ({recentInvoices.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('bills')}
+              className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                activeTab === 'bills'
+                  ? 'bg-white text-amber-700 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Bills ({recentBills.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('exchange')}
+              className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                activeTab === 'exchange'
+                  ? 'bg-white text-green-700 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Exchange ({exchangeBills.length})
+            </button>
+          </div>
+          
           <div className="space-y-4 max-h-96 overflow-y-auto">
-            {recentInvoices.map((sale) => (
-              <div key={sale.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center space-x-3 flex-1">
-                  <div className="p-2 bg-amber-100 rounded-full">
-                    <Receipt className="h-4 w-4 text-amber-600" />
+            {(() => {
+              let transactions: any[] = [];
+              
+              if (activeTab === 'all') {
+                transactions = [...recentInvoices, ...recentBills, ...exchangeBills]
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                  .slice(0, 10);
+              } else if (activeTab === 'invoices') {
+                transactions = recentInvoices;
+              } else if (activeTab === 'bills') {
+                transactions = recentBills;
+              } else if (activeTab === 'exchange') {
+                transactions = exchangeBills;
+              }
+              
+              return transactions.map((transaction) => {
+                const isExchange = transaction.bill_number?.startsWith('EXCH-');
+                const isInvoice = transaction.invoice_number;
+                
+                return (
+                  <div key={transaction.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div className="flex items-center space-x-3 flex-1">
+                      <div className={`p-2 rounded-full ${
+                        isExchange ? 'bg-green-100' :
+                        isInvoice ? 'bg-blue-100' :
+                        'bg-amber-100'
+                      }`}>
+                        <Receipt className={`h-4 w-4 ${
+                          isExchange ? 'text-green-600' :
+                          isInvoice ? 'text-blue-600' :
+                          'text-amber-600'
+                        }`} />
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {transaction.invoice_number || transaction.bill_number}
+                        </p>
+                        <p className="text-sm text-gray-600">{transaction.customer_name}</p>
+                        <div className="flex items-center space-x-2">
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            isExchange ? 'bg-green-100 text-green-800' :
+                            isInvoice ? 'bg-blue-100 text-blue-800' :
+                            'bg-amber-100 text-amber-800'
+                          }`}>
+                            {isExchange ? 'Exchange Bill' :
+                             isInvoice ? 'Invoice' : 'Bill'}
+                          </span>
+                          {isExchange && (transaction as any).old_gold_weight && (
+                            <span className="text-xs text-gray-500">
+                              {(transaction as any).old_gold_weight}g ({(transaction as any).old_gold_purity})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <div className="text-right">
+                        <p className="font-medium text-gray-900">₹{(transaction.total_amount || 0).toLocaleString()}</p>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          transaction.payment_status === 'paid' 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {transaction.payment_status}
+                        </span>
+                        {isExchange && (transaction as any).exchange_difference !== undefined && (
+                          <p className={`text-xs font-medium ${
+                            (transaction as any).exchange_difference >= 0 ? 'text-red-600' : 'text-green-600'
+                          }`}>
+                            {(transaction as any).exchange_difference >= 0 ? 'Pay' : 'Receive'} ₹{Math.abs((transaction as any).exchange_difference).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => generateInvoicePDF(transaction)}
+                        className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-colors"
+                        title="Download PDF"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-gray-900">
-                      {sale.invoice_number || sale.bill_number}
-                    </p>
-                    <p className="text-sm text-gray-600">{sale.customer_name}</p>
-                    <p className="text-xs text-gray-500">
-                      {sale.invoice_number ? 'Invoice' : 'Bill'}
-                    </p>
-                  </div>
+                );
+              });
+            })()}
+            
+            {(() => {
+              let transactions: any[] = [];
+              
+              if (activeTab === 'all') {
+                transactions = [...recentInvoices, ...recentBills, ...exchangeBills]
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                  .slice(0, 10);
+              } else if (activeTab === 'invoices') {
+                transactions = recentInvoices;
+              } else if (activeTab === 'bills') {
+                transactions = recentBills;
+              } else if (activeTab === 'exchange') {
+                transactions = exchangeBills;
+              }
+              
+              return transactions.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <Receipt className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>No {activeTab === 'all' ? 'transactions' : activeTab + 's'} found</p>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <div className="text-right">
-                    <p className="font-medium text-gray-900">₹{(sale.total_amount || 0).toLocaleString()}</p>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      sale.payment_status === 'paid' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {sale.payment_status}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => generateInvoicePDF(sale)}
-                    className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-colors"
-                    title="Download PDF"
-                  >
-                    <Download className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })()}
           </div>
         </div>
 

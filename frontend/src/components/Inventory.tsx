@@ -136,8 +136,6 @@ const Inventory: React.FC = () => {
       barcode: product?.barcode || '',
       weight: product?.weight || 0,
       purity: product?.purity || '22K',
-      making_charge: product?.making_charge || 0,
-      current_rate: product?.current_rate || 5500,
       stock_quantity: product?.stock_quantity || 0,
       min_stock_level: product?.min_stock_level || 1,
       status: product?.status || 'active',
@@ -326,18 +324,18 @@ const Inventory: React.FC = () => {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-sm font-medium text-gray-700">
-                    {t('inventory.barcode')}
-                  </label>
+                  {t('inventory.barcode')}
+                </label>
                   <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
                     Ctrl+B to focus
                   </span>
                 </div>
                 <div className="flex space-x-2">
                   <div className="flex-1 relative">
-                    <input
+                  <input
                       ref={barcodeInputRef}
-                      type="text"
-                      value={formData.barcode}
+                    type="text"
+                    value={formData.barcode}
                       onChange={(e) => handleBarcodeInput(e.target.value)}
                       onKeyDown={handleBarcodeKeyDown}
                       placeholder="Scan or enter barcode..."
@@ -425,37 +423,6 @@ const Inventory: React.FC = () => {
                 </select>
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Making Charge (₹) *
-                </label>
-                <input
-                  type="number"
-                  value={formData.making_charge || ''}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setFormData({ ...formData, making_charge: value === '' ? 0 : parseInt(value) || 0 });
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Current Rate (₹/gram) *
-                </label>
-                <input
-                  type="number"
-                  value={formData.current_rate || ''}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setFormData({ ...formData, current_rate: value === '' ? 0 : parseInt(value) || 0 });
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  required
-                />
-              </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -610,7 +577,6 @@ const Inventory: React.FC = () => {
                 <th className="px-6 py-4 text-left text-sm font-medium text-gray-500">{t('inventory.skuBarcode')}</th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-gray-500">Gender/Age</th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-gray-500">{t('common.weight')}</th>
-                <th className="px-6 py-4 text-left text-sm font-medium text-gray-500">{t('common.rate')}</th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-gray-500">Stock</th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-gray-500">{t('common.status')}</th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-gray-500">{t('common.actions')}</th>
@@ -650,12 +616,6 @@ const Inventory: React.FC = () => {
                   </td>
                   <td className="px-6 py-4">
                     <p className="text-sm text-gray-900">{product.weight}g</p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">₹{product.current_rate}/g</p>
-                      <p className="text-xs text-gray-600">{t('inventory.making')}: ₹{product.making_charge}</p>
-                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center space-x-2">
