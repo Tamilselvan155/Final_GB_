@@ -104,9 +104,9 @@ const Settings: React.FC = () => {
         }
       };
 
-      // Create Excel workbook with multiple sheets
-      const workbook = XLSX.utils.book_new();
-      
+        // Create Excel workbook with multiple sheets
+        const workbook = XLSX.utils.book_new();
+        
       // Progress: 50%
       setExportProgress(50);
       
@@ -191,8 +191,8 @@ const Settings: React.FC = () => {
         const billsSheet = XLSX.utils.json_to_sheet(billsData);
         XLSX.utils.book_append_sheet(workbook, billsSheet, 'Bills');
       }
-      
-      // Business info sheet
+        
+        // Business info sheet
       const businessData = [{
         'Business Name': businessInfo.name,
         'Address': businessInfo.address,
@@ -203,7 +203,7 @@ const Settings: React.FC = () => {
         'Export Date': new Date().toLocaleDateString('en-IN')
       }];
       const businessSheet = XLSX.utils.json_to_sheet(businessData);
-      XLSX.utils.book_append_sheet(workbook, businessSheet, 'Business Info');
+        XLSX.utils.book_append_sheet(workbook, businessSheet, 'Business Info');
       
       // Tax settings sheet
       const taxData = [{
@@ -214,10 +214,10 @@ const Settings: React.FC = () => {
       }];
       const taxSheet = XLSX.utils.json_to_sheet(taxData);
       XLSX.utils.book_append_sheet(workbook, taxSheet, 'Tax Settings');
-      
-      // Progress: 80%
-      setExportProgress(80);
-      
+        
+        // Progress: 80%
+        setExportProgress(80);
+        
       // Generate Excel file with proper options
       const excelBuffer = XLSX.write(workbook, { 
         bookType: 'xlsx', 
@@ -228,16 +228,16 @@ const Settings: React.FC = () => {
       const dataBlob = new Blob([excelBuffer], { 
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
       });
-      const url = URL.createObjectURL(dataBlob);
-      
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `gold-billing-backup-${new Date().toISOString().split('T')[0]}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      
+        const url = URL.createObjectURL(dataBlob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `gold-billing-backup-${new Date().toISOString().split('T')[0]}.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
       success(`All data exported to Excel successfully! ${workbook.SheetNames.length} sheets created.`);
       
       // Progress: 100%
@@ -465,17 +465,17 @@ const Settings: React.FC = () => {
       const db = Database.getInstance();
       let importData: any = {};
 
-      // Handle Excel file
-      setImportProgress(20);
-      const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-      
-      // Convert Excel sheets to JSON
-      const sheetNames = workbook.SheetNames;
-      importData = {};
-      
-      sheetNames.forEach(sheetName => {
-        const worksheet = workbook.Sheets[sheetName];
+        // Handle Excel file
+        setImportProgress(20);
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        
+        // Convert Excel sheets to JSON
+        const sheetNames = workbook.SheetNames;
+        importData = {};
+        
+        sheetNames.forEach(sheetName => {
+          const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
           header: 1,
           defval: '',
@@ -497,23 +497,23 @@ const Settings: React.FC = () => {
           });
           return obj;
         });
-        
-        if (sheetName.toLowerCase().includes('product')) {
+          
+          if (sheetName.toLowerCase().includes('product')) {
           importData.products = objects;
-        } else if (sheetName.toLowerCase().includes('customer')) {
+          } else if (sheetName.toLowerCase().includes('customer')) {
           importData.customers = objects;
-        } else if (sheetName.toLowerCase().includes('invoice')) {
+          } else if (sheetName.toLowerCase().includes('invoice')) {
           importData.invoices = objects;
-        } else if (sheetName.toLowerCase().includes('bill')) {
+          } else if (sheetName.toLowerCase().includes('bill')) {
           importData.bills = objects;
-        } else if (sheetName.toLowerCase().includes('business')) {
+          } else if (sheetName.toLowerCase().includes('business')) {
           importData.business_info = objects[0];
         } else if (sheetName.toLowerCase().includes('tax')) {
           importData.tax_settings = objects[0];
-        }
-      });
-      
-      setImportProgress(40);
+          }
+        });
+        
+        setImportProgress(40);
 
       // Validate and clean data
       setImportProgress(60);
@@ -1331,7 +1331,7 @@ const Settings: React.FC = () => {
                   <p className="text-sm text-gray-600 mb-4">
                     Import data from previously exported Excel files. Make sure the file format matches the export format.
                   </p>
-                  
+
                   {/* Excel Import */}
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 mb-3">Excel Import</h4>
