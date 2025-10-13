@@ -336,7 +336,7 @@ const Billing: React.FC = () => {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-          <div className="p-6 border-b border-gray-200">
+          <div className="p-6 border-b border-gray-300">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-900">Select Customer</h2>
               <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
