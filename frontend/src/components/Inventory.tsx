@@ -842,7 +842,7 @@ const Inventory: React.FC = () => {
                     setViewingProduct(null);
                     setEditingProduct(viewingProduct);
                   }}
-                  className="flex items-center bg-amber-500 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-md"
+                  className="flex items-center bg-amber-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-md"
                 >
                   <Wrench className="h-5 w-5 mr-2" />
                   Edit Product Details
