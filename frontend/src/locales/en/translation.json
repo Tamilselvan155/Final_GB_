@@ -26,7 +26,7 @@
     "phone": "Phone",
     "email": "Email",
     "address": "Address",
-    "status": "Status",
+    "status": "status",
     "actions": "Actions",
     "quantity": "Quantity",
     "weight": "Weight",
@@ -77,6 +77,7 @@
     "left": "left",
     "min": "Min"
   },
+
   "inventory": {
     "title": "Inventory Management",
     "subtitle": "Manage your gold jewelry inventory and stock levels",
@@ -87,12 +88,14 @@
     "productName": "Product Name",
     "sku": "SKU",
     "barcode": "Barcode",
+    "barcodePlaceholder": "Scan or enter barcode...",
     "weightGrams": "Weight (grams)",
     "purity": "Purity",
     "makingCharge": "Making Charge (₹)",
     "currentRate": "Current Rate (₹/gram)",
     "stockQuantity": "Stock Quantity",
     "minStockLevel": "Minimum Stock Level",
+    "status": "Status",
     "searchPlaceholder": "Search products by name, SKU, or barcode...",
     "product": "Product",
     "skuBarcode": "SKU/Barcode",
@@ -104,8 +107,17 @@
     "earrings": "Earrings",
     "bracelets": "Bracelets",
     "necklaces": "Necklaces",
-    "bangles": "Bangles"
-  },
+    "bangles": "Bangles",
+    "genderAgeCategory": "Gender/Age Category",
+    "selectGenderAgeCategory": "Select Gender/Age Category",
+    "women": "Women",
+    "men": "Men",
+    "kids": "Kids",
+    "all": "All",
+    "cancel": "Cancel",
+    "category": "Category"
+  
+},
   "billing": {
     "title": "Billing & Invoicing",
     "subtitle": "Create and manage invoices for your customers",
