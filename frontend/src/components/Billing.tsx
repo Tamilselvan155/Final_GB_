@@ -10,7 +10,14 @@ import {
   X,
   FileText,
   CreditCard,
-  Scan
+  Scan,
+  Eye,
+  Package,
+  Scale,
+  Hash,
+  Wrench,
+  Calculator,
+  Settings
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import Database from '../utils/database';
@@ -69,7 +76,7 @@ const Billing: React.FC = () => {
 
   useEffect(() => {
     calculateTotals();
-  }, [currentBill.items, currentBill.tax_percentage, currentBill.discount_percentage]);
+  }, [currentBill.items, currentBill.tax_percentage, currentBill.discount_amount]);
 
   useEffect(() => {
     calculateExchangeTotals();
@@ -108,7 +115,7 @@ const Billing: React.FC = () => {
     const items = currentBill.items || [];
     const subtotal = items.reduce((sum, item) => sum + item.total, 0);
     
-    const discountAmount = (subtotal * (currentBill.discount_percentage || 0)) / 100;
+    const discountAmount = currentBill.discount_amount || 0;
     const discountedSubtotal = subtotal - discountAmount;
     const taxAmount = (discountedSubtotal * (currentBill.tax_percentage || 0)) / 100;
     const totalAmount = discountedSubtotal + taxAmount;
@@ -117,7 +124,6 @@ const Billing: React.FC = () => {
       ...prev,
       subtotal,
       tax_amount: taxAmount,
-      discount_amount: discountAmount,
       total_amount: totalAmount,
     }));
   };
@@ -599,7 +605,7 @@ const Billing: React.FC = () => {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-          <div className="p-6 border-b border-gray-200">
+          <div className="p-6 border-b border-gray-300">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-900">{t('billing.selectCustomer')}</h2>
               <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
@@ -688,98 +694,216 @@ const Billing: React.FC = () => {
   const generateBillPDF = (bill: Bill) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 20;
-    let yPosition = 20;
+    let yPosition = 25;
 
-    // Header
-    doc.setFontSize(24);
+    // Add gold/brown border strips (exact template colors)
+    doc.setFillColor(218, 165, 32); // Gold color for borders
+    doc.rect(0, 0, 10, pageHeight, 'F'); // Left border
+    doc.rect(pageWidth - 10, 0, 10, pageHeight, 'F'); // Right border
+    doc.rect(0, 0, pageWidth, 10, 'F'); // Top border
+    doc.rect(0, pageHeight - 10, pageWidth, 10, 'F'); // Bottom border
+
+    // Header with Tamil text (exact template text)
+    doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.text('GOLD BILLING PRO', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 10;
+    doc.text('ஸ்ரீ காத்தாயி அம்மன் துணை', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 8;
+    doc.text('வர்ணமிகு நகைகளுக்கு', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 15;
 
-    doc.setFontSize(16);
+    // Left side business details (exact template layout)
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text('BILL', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 20;
+    
+    // B15 Logo placeholder (blue triangle)
+    doc.setFillColor(0, 0, 255); // Blue color
+    doc.rect(margin, yPosition, 8, 8, 'F');
+    doc.setFillColor(255, 255, 255); // White text
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.text('B15', margin + 2, yPosition + 6);
+    
+    // Reset font
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text('GSTIN: 33DIZPK7238G1ZP', margin, yPosition + 12);
+    doc.text('Mobile: 98432 95615', margin, yPosition + 20);
+    doc.text('Address: அகரம் சீகூர்', margin, yPosition + 28);
+    doc.text('(பார்டர்) - 621 108.', margin, yPosition + 36);
+    doc.text('பெரம்பலூர் Dt.', margin, yPosition + 44);
 
-    // Bill Details
+    // Right side branding (exact template layout)
+    // VKV Logo placeholder (circular with yellow/red)
+    const logoX = pageWidth - margin - 25;
+    doc.setFillColor(255, 255, 0); // Yellow outer ring
+    doc.circle(logoX, yPosition + 10, 8, 'F');
+    doc.setFillColor(255, 0, 0); // Red inner circle
+    doc.circle(logoX, yPosition + 10, 6, 'F');
+    doc.setFillColor(255, 255, 255); // White text
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.text('VKV', logoX - 2, yPosition + 12);
+    
+    // Tamil words below logo
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.text('நம்பிக்கை', logoX - 4, yPosition + 18);
+    doc.text('தரம்', logoX - 2, yPosition + 24);
+    
+    // Company name (exact Tamil text)
+    doc.setFillColor(0, 0, 0); // Black text
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Bill Number: ${bill.bill_number}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Date: ${new Date(bill.created_at).toLocaleDateString('en-IN')}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Customer: ${bill.customer_name}`, margin, yPosition);
-    yPosition += 8;
+    doc.text('ஸ்ரீ வண்ணமயில்', pageWidth - margin, yPosition + 35, { align: 'right' });
+    doc.text('தங்கமாளிகை', pageWidth - margin, yPosition + 45, { align: 'right' });
+    
+    // Slogan in red
+    doc.setFillColor(255, 0, 0); // Red text
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
+
+    yPosition += 70;
+
+    // Invoice Details section header (light gray box)
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, yPosition, pageWidth - 2 * margin, 15, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
+    yPosition += 20;
+
+    // Customer information box (left side)
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, yPosition, 120, 45, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Customer Name & address', margin + 5, yPosition + 8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(bill.customer_name || '', margin + 5, yPosition + 18);
     if (bill.customer_phone) {
-      doc.text(`Phone: ${bill.customer_phone}`, margin, yPosition);
-      yPosition += 8;
+      doc.text(`Phone: ${bill.customer_phone}`, margin + 5, yPosition + 28);
     }
+
+    // Right side boxes (DATE, Time, NO)
+    const rightBoxX = pageWidth - margin - 80;
+    const boxWidth = 80;
+    const boxHeight = 12;
+    
+    // DATE box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('DATE', rightBoxX + 5, yPosition + 8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(new Date(bill.created_at).toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
+    
+    // Time box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition + 15, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFont('helvetica', 'bold');
+    doc.text('Time', rightBoxX + 5, yPosition + 23);
+    doc.setFont('helvetica', 'normal');
+    doc.text(new Date(bill.created_at).toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
+    
+    // NO box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition + 30, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFont('helvetica', 'bold');
+    doc.text('NO', rightBoxX + 5, yPosition + 38);
+    doc.setFont('helvetica', 'normal');
+    doc.text(bill.bill_number || '', rightBoxX + 5, yPosition + 48);
+
+    yPosition += 60;
+
+    // First dotted line
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
+    }
+    yPosition += 15;
+
+    // Items table header
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    const colPositions = [margin + 5, margin + 30, margin + 95, margin + 130, margin + 165, margin + 190];
+    
+    doc.text('Qty', colPositions[0], yPosition);
+    doc.text('Description', colPositions[1], yPosition);
+    doc.text('HSN/SAC', colPositions[2], yPosition);
+    doc.text('Rate', colPositions[3], yPosition);
+    doc.text('Gross Wt.', colPositions[4], yPosition);
+    doc.text('Taxable Amount', colPositions[5], yPosition);
     yPosition += 10;
 
-    // Items Table Header
-    doc.setFont('helvetica', 'bold');
-    doc.text('Item', margin, yPosition);
-    doc.text('Weight (g)', margin + 50, yPosition);
-    doc.text('Rate', margin + 80, yPosition);
-    doc.text('Making', margin + 110, yPosition);
-    doc.text('Qty', margin + 140, yPosition);
-    doc.text('Total', margin + 160, yPosition);
-    yPosition += 8;
-
-    // Draw line
-    doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 5;
-
-    // Items
+    // Items table data
     doc.setFont('helvetica', 'normal');
     if (bill.items && Array.isArray(bill.items)) {
       bill.items.forEach((item: any) => {
-        doc.text(item.product_name || 'N/A', margin, yPosition);
-        doc.text(item.weight?.toString() || '0', margin + 50, yPosition);
-        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, margin + 80, yPosition);
-        doc.text(`₹${item.making_charge?.toLocaleString() || '0'}`, margin + 110, yPosition);
-        doc.text(item.quantity?.toString() || '1', margin + 140, yPosition);
-        doc.text(`₹${item.total?.toLocaleString() || '0'}`, margin + 160, yPosition);
+        doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
+        doc.text(item.product_name || 'N/A', colPositions[1], yPosition);
+        doc.text('711319', colPositions[2], yPosition); // HSN code for gold jewelry
+        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, colPositions[3], yPosition);
+        doc.text(item.weight?.toString() || '0', colPositions[4], yPosition);
+        doc.text(`₹${item.total?.toLocaleString() || '0'}`, colPositions[5], yPosition);
         yPosition += 8;
       });
     }
 
     yPosition += 10;
-    doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 10;
 
-    // Totals
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Subtotal: ₹${bill.subtotal?.toLocaleString() || '0'}`, margin + 100, yPosition);
-    yPosition += 8;
-    if (bill.discount_amount && bill.discount_amount > 0) {
-      doc.text(`Discount (${bill.discount_percentage}%): -₹${bill.discount_amount.toLocaleString()}`, margin + 100, yPosition);
-      yPosition += 8;
+    // Second dotted line
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
     }
-    if (bill.tax_amount && bill.tax_amount > 0) {
-      doc.text(`Tax (${bill.tax_percentage}%): ₹${bill.tax_amount.toLocaleString()}`, margin + 100, yPosition);
-      yPosition += 8;
-    }
-    doc.setFontSize(14);
-    doc.text(`Total Amount: ₹${bill.total_amount?.toLocaleString() || '0'}`, margin + 100, yPosition);
     yPosition += 15;
 
-    // Payment Details
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Payment Method: ${bill.payment_method?.toUpperCase() || 'CASH'}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Payment Status: ${bill.payment_status?.toUpperCase() || 'PENDING'}`, margin, yPosition);
-    if (bill.amount_paid && bill.amount_paid > 0) {
+    // Summary section
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text(`Total Qty: ${bill.items?.length || 0}`, margin + 5, yPosition);
+    doc.text(`Total Gross Weight: ${bill.items?.reduce((sum: number, item: any) => sum + (item.weight || 0), 0).toFixed(3) || '0'}`, margin + 5, yPosition + 8);
+    doc.text(`Total Taxable Amount: ₹${bill.subtotal?.toLocaleString() || '0'}`, margin + 5, yPosition + 16);
+    
+    if (bill.discount_amount && bill.discount_amount > 0) {
+      doc.text(`Less Special Discount Rs 50/-PER GMS: ₹${Math.round(bill.discount_amount)}`, margin + 5, yPosition + 24);
       yPosition += 8;
-      doc.text(`Amount Paid: ₹${bill.amount_paid.toLocaleString()}`, margin, yPosition);
     }
+    
+    doc.text(`Net Amount: ₹${bill.total_amount?.toLocaleString() || '0'}`, margin + 5, yPosition + 32);
 
-    // Footer
-    yPosition = doc.internal.pageSize.getHeight() - 30;
-    doc.setFontSize(10);
-    doc.text('Thank you for your business!', pageWidth / 2, yPosition, { align: 'center' });
+    // Peacock watermark (simplified version)
+    const watermarkY = pageHeight - 80;
+    doc.setFillColor(240, 240, 240, 0.3); // Semi-transparent gray
+    doc.setFontSize(60);
+    doc.setFont('helvetica', 'bold');
+    doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
+
+    // Signature lines (right side)
+    const signatureY = watermarkY + 20;
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
+    doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
+
+    // Footer messages (exact Tamil text)
+    const footerY = pageHeight - 25;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.text('உங்களது வளர்ச்சி!', margin + 5, footerY);
+    doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
 
     // Download
     doc.save(`Bill-${bill.bill_number}.pdf`);
@@ -789,98 +913,216 @@ const Billing: React.FC = () => {
   const generateInvoicePDF = (invoice: Invoice) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 20;
-    let yPosition = 20;
+    let yPosition = 25;
 
-    // Header
-    doc.setFontSize(24);
+    // Add gold/brown border strips (exact template colors)
+    doc.setFillColor(218, 165, 32); // Gold color for borders
+    doc.rect(0, 0, 10, pageHeight, 'F'); // Left border
+    doc.rect(pageWidth - 10, 0, 10, pageHeight, 'F'); // Right border
+    doc.rect(0, 0, pageWidth, 10, 'F'); // Top border
+    doc.rect(0, pageHeight - 10, pageWidth, 10, 'F'); // Bottom border
+
+    // Header with Tamil text (exact template text)
+    doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.text('GOLD BILLING PRO', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 10;
+    doc.text('ஸ்ரீ காத்தாயி அம்மன் துணை', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 8;
+    doc.text('வர்ணமிகு நகைகளுக்கு', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 15;
 
-    doc.setFontSize(16);
+    // Left side business details (exact template layout)
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text('INVOICE', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 20;
+    
+    // B15 Logo placeholder (blue triangle)
+    doc.setFillColor(0, 0, 255); // Blue color
+    doc.rect(margin, yPosition, 8, 8, 'F');
+    doc.setFillColor(255, 255, 255); // White text
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.text('B15', margin + 2, yPosition + 6);
+    
+    // Reset font
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text('GSTIN: 33DIZPK7238G1ZP', margin, yPosition + 12);
+    doc.text('Mobile: 98432 95615', margin, yPosition + 20);
+    doc.text('Address: அகரம் சீகூர்', margin, yPosition + 28);
+    doc.text('(பார்டர்) - 621 108.', margin, yPosition + 36);
+    doc.text('பெரம்பலூர் Dt.', margin, yPosition + 44);
 
-    // Invoice Details
+    // Right side branding (exact template layout)
+    // VKV Logo placeholder (circular with yellow/red)
+    const logoX = pageWidth - margin - 25;
+    doc.setFillColor(255, 255, 0); // Yellow outer ring
+    doc.circle(logoX, yPosition + 10, 8, 'F');
+    doc.setFillColor(255, 0, 0); // Red inner circle
+    doc.circle(logoX, yPosition + 10, 6, 'F');
+    doc.setFillColor(255, 255, 255); // White text
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.text('VKV', logoX - 2, yPosition + 12);
+    
+    // Tamil words below logo
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.text('நம்பிக்கை', logoX - 4, yPosition + 18);
+    doc.text('தரம்', logoX - 2, yPosition + 24);
+    
+    // Company name (exact Tamil text)
+    doc.setFillColor(0, 0, 0); // Black text
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Invoice Number: ${invoice.invoice_number}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Date: ${new Date(invoice.created_at).toLocaleDateString('en-IN')}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Customer: ${invoice.customer_name}`, margin, yPosition);
-    yPosition += 8;
+    doc.text('ஸ்ரீ வண்ணமயில்', pageWidth - margin, yPosition + 35, { align: 'right' });
+    doc.text('தங்கமாளிகை', pageWidth - margin, yPosition + 45, { align: 'right' });
+    
+    // Slogan in red
+    doc.setFillColor(255, 0, 0); // Red text
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
+
+    yPosition += 70;
+
+    // Invoice Details section header (light gray box)
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, yPosition, pageWidth - 2 * margin, 15, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
+    yPosition += 20;
+
+    // Customer information box (left side)
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, yPosition, 120, 45, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Customer Name & address', margin + 5, yPosition + 8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(invoice.customer_name || '', margin + 5, yPosition + 18);
     if (invoice.customer_phone) {
-      doc.text(`Phone: ${invoice.customer_phone}`, margin, yPosition);
-      yPosition += 8;
+      doc.text(`Phone: ${invoice.customer_phone}`, margin + 5, yPosition + 28);
     }
+
+    // Right side boxes (DATE, Time, NO)
+    const rightBoxX = pageWidth - margin - 80;
+    const boxWidth = 80;
+    const boxHeight = 12;
+    
+    // DATE box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('DATE', rightBoxX + 5, yPosition + 8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(new Date(invoice.created_at).toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
+    
+    // Time box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition + 15, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFont('helvetica', 'bold');
+    doc.text('Time', rightBoxX + 5, yPosition + 23);
+    doc.setFont('helvetica', 'normal');
+    doc.text(new Date(invoice.created_at).toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
+    
+    // NO box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition + 30, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFont('helvetica', 'bold');
+    doc.text('NO', rightBoxX + 5, yPosition + 38);
+    doc.setFont('helvetica', 'normal');
+    doc.text(invoice.invoice_number || '', rightBoxX + 5, yPosition + 48);
+
+    yPosition += 60;
+
+    // First dotted line
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
+    }
+    yPosition += 15;
+
+    // Items table header
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    const colPositions = [margin + 5, margin + 30, margin + 95, margin + 130, margin + 165, margin + 190];
+    
+    doc.text('Qty', colPositions[0], yPosition);
+    doc.text('Description', colPositions[1], yPosition);
+    doc.text('HSN/SAC', colPositions[2], yPosition);
+    doc.text('Rate', colPositions[3], yPosition);
+    doc.text('Gross Wt.', colPositions[4], yPosition);
+    doc.text('Taxable Amount', colPositions[5], yPosition);
     yPosition += 10;
 
-    // Items Table Header
-    doc.setFont('helvetica', 'bold');
-    doc.text('Item', margin, yPosition);
-    doc.text('Weight (g)', margin + 50, yPosition);
-    doc.text('Rate', margin + 80, yPosition);
-    doc.text('Making', margin + 110, yPosition);
-    doc.text('Qty', margin + 140, yPosition);
-    doc.text('Total', margin + 160, yPosition);
-    yPosition += 8;
-
-    // Draw line
-    doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 5;
-
-    // Items
+    // Items table data
     doc.setFont('helvetica', 'normal');
     if (invoice.items && Array.isArray(invoice.items)) {
       invoice.items.forEach((item: any) => {
-        doc.text(item.product_name || 'N/A', margin, yPosition);
-        doc.text(item.weight?.toString() || '0', margin + 50, yPosition);
-        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, margin + 80, yPosition);
-        doc.text(`₹${item.making_charge?.toLocaleString() || '0'}`, margin + 110, yPosition);
-        doc.text(item.quantity?.toString() || '1', margin + 140, yPosition);
-        doc.text(`₹${item.total?.toLocaleString() || '0'}`, margin + 160, yPosition);
+        doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
+        doc.text(item.product_name || 'N/A', colPositions[1], yPosition);
+        doc.text('711319', colPositions[2], yPosition); // HSN code for gold jewelry
+        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, colPositions[3], yPosition);
+        doc.text(item.weight?.toString() || '0', colPositions[4], yPosition);
+        doc.text(`₹${item.total?.toLocaleString() || '0'}`, colPositions[5], yPosition);
         yPosition += 8;
       });
     }
 
     yPosition += 10;
-    doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 10;
 
-    // Totals
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Subtotal: ₹${invoice.subtotal?.toLocaleString() || '0'}`, margin + 100, yPosition);
-    yPosition += 8;
-    if (invoice.discount_amount && invoice.discount_amount > 0) {
-      doc.text(`Discount (${invoice.discount_percentage}%): -₹${invoice.discount_amount.toLocaleString()}`, margin + 100, yPosition);
-      yPosition += 8;
+    // Second dotted line
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
     }
-    if (invoice.tax_amount && invoice.tax_amount > 0) {
-      doc.text(`Tax (${invoice.tax_percentage}%): ₹${invoice.tax_amount.toLocaleString()}`, margin + 100, yPosition);
-      yPosition += 8;
-    }
-    doc.setFontSize(14);
-    doc.text(`Total Amount: ₹${invoice.total_amount?.toLocaleString() || '0'}`, margin + 100, yPosition);
     yPosition += 15;
 
-    // Payment Details
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Payment Method: ${invoice.payment_method?.toUpperCase() || 'CASH'}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Payment Status: ${invoice.payment_status?.toUpperCase() || 'PENDING'}`, margin, yPosition);
-    if (invoice.amount_paid && invoice.amount_paid > 0) {
+    // Summary section
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text(`Total Qty: ${invoice.items?.length || 0}`, margin + 5, yPosition);
+    doc.text(`Total Gross Weight: ${invoice.items?.reduce((sum: number, item: any) => sum + (item.weight || 0), 0).toFixed(3) || '0'}`, margin + 5, yPosition + 8);
+    doc.text(`Total Taxable Amount: ₹${invoice.subtotal?.toLocaleString() || '0'}`, margin + 5, yPosition + 16);
+    
+    if (invoice.discount_amount && invoice.discount_amount > 0) {
+      doc.text(`Less Special Discount Rs 50/-PER GMS: ₹${Math.round(invoice.discount_amount)}`, margin + 5, yPosition + 24);
       yPosition += 8;
-      doc.text(`Amount Paid: ₹${invoice.amount_paid.toLocaleString()}`, margin, yPosition);
     }
+    
+    doc.text(`Net Amount: ₹${invoice.total_amount?.toLocaleString() || '0'}`, margin + 5, yPosition + 32);
 
-    // Footer
-    yPosition = doc.internal.pageSize.getHeight() - 30;
-    doc.setFontSize(10);
-    doc.text('Thank you for your business!', pageWidth / 2, yPosition, { align: 'center' });
+    // Peacock watermark (simplified version)
+    const watermarkY = pageHeight - 80;
+    doc.setFillColor(240, 240, 240, 0.3); // Semi-transparent gray
+    doc.setFontSize(60);
+    doc.setFont('helvetica', 'bold');
+    doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
+
+    // Signature lines (right side)
+    const signatureY = watermarkY + 20;
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
+    doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
+
+    // Footer messages (exact Tamil text)
+    const footerY = pageHeight - 25;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.text('உங்களது வளர்ச்சி!', margin + 5, footerY);
+    doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
 
     // Download
     doc.save(`Invoice-${invoice.invoice_number}.pdf`);
@@ -901,21 +1143,21 @@ const Billing: React.FC = () => {
             <Download className="h-4 w-4" />
             <span>{t('billing.reports')}</span>
           </button>
-          {activeTab === 'billing' ? (
-            <button
-              onClick={saveBill}
-              className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
-            >
-              <CreditCard className="h-4 w-4" />
-              <span>{t('billing.createBill')}</span>
-            </button>
-          ) : activeTab === 'invoice' ? (
+          {activeTab === 'invoice' ? (
             <button
               onClick={saveInvoice}
               className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
               <FileText className="h-4 w-4" />
               <span>{t('billing.createInvoice')}</span>
+            </button>
+          ) : activeTab === 'billing' ? (
+            <button
+              onClick={saveBill}
+              className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+            >
+              <CreditCard className="h-4 w-4" />
+              <span>{t('billing.createBill')}</span>
             </button>
           ) : (
             <button
@@ -933,17 +1175,6 @@ const Billing: React.FC = () => {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1">
         <div className="flex space-x-1">
           <button
-            onClick={() => setActiveTab('billing')}
-            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
-              activeTab === 'billing'
-                ? 'bg-amber-500 text-white'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <CreditCard className="h-4 w-4" />
-            <span>{t('billing.billingDeductStock')}</span>
-          </button>
-          <button
             onClick={() => setActiveTab('invoice')}
             className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
               activeTab === 'invoice'
@@ -953,6 +1184,17 @@ const Billing: React.FC = () => {
           >
             <FileText className="h-4 w-4" />
             <span>{t('billing.invoiceQuoteEstimate')}</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('billing')}
+            className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+              activeTab === 'billing'
+                ? 'bg-amber-500 text-white'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <CreditCard className="h-4 w-4" />
+            <span>{t('billing.billingDeductStock')}</span>
           </button>
           <button
             onClick={() => setActiveTab('exchange')}
@@ -974,7 +1216,10 @@ const Billing: React.FC = () => {
           {/* Customer Selection */}
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">{t('billing.customerInformation')}</h2>
+              <div className="flex items-center space-x-2">
+                <User className="h-5 w-5 text-amber-500" />
+                <h2 className="text-lg font-semibold text-gray-900">{t('billing.customerInformation')}</h2>
+              </div>
               <button
                 onClick={() => setShowCustomerModal(true)}
                 className="flex items-center space-x-2 px-3 py-2 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors"
@@ -1130,9 +1375,11 @@ const Billing: React.FC = () => {
           {/* Barcode Scanner */}
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">{t('billing.barcodeScanner')}</h2>
               <div className="flex items-center space-x-2">
                 <Scan className="h-5 w-5 text-amber-500" />
+                <h2 className="text-lg font-semibold text-gray-900">{t('billing.barcodeScanner')}</h2>
+              </div>
+              <div className="flex items-center space-x-2">
                 {isScanning && (
                   <div className="flex items-center space-x-2 text-amber-600">
                     <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent"></div>
@@ -1175,7 +1422,10 @@ const Billing: React.FC = () => {
           {/* Product Search */}
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">{t('billing.addProducts')}</h2>
+              <div className="flex items-center space-x-2">
+                <Package className="h-5 w-5 text-amber-500" />
+                <h2 className="text-lg font-semibold text-gray-900">{t('billing.addProducts')}</h2>
+              </div>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                 <input
@@ -1247,13 +1497,48 @@ const Billing: React.FC = () => {
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.item')}</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.weight')}</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.rate')}</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.making')}</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.qty')}</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.total')}</th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">{t('billing.action')}</th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                      <div className="flex items-center space-x-2">
+                        <Package className="h-4 w-4" />
+                        <span>{t('billing.item')}</span>
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                      <div className="flex items-center space-x-2">
+                        <Scale className="h-4 w-4" />
+                        <span>{t('billing.weight')}</span>
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-lg font-bold">₹</span>
+                        <span>{t('billing.rate')}</span>
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                      <div className="flex items-center space-x-2">
+                        <Wrench className="h-4 w-4" />
+                        <span>{t('billing.making')}</span>
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                      <div className="flex items-center space-x-2">
+                        <Hash className="h-4 w-4" />
+                        <span>{t('billing.qty')}</span>
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                      <div className="flex items-center space-x-2">
+                        <Calculator className="h-4 w-4" />
+                        <span>{t('billing.total')}</span>
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                      <div className="flex items-center space-x-2">
+                        <Settings className="h-4 w-4" />
+                        <span>{t('billing.action')}</span>
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1268,92 +1553,110 @@ const Billing: React.FC = () => {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={item.weight}
-                          onChange={(e) => {
-                            const value = parseFloat(e.target.value);
-                            if (!isNaN(value) && value > 0) {
-                              if (activeTab === 'exchange') {
-                                updateExchangeItem(item.id, { weight: value });
-                              } else {
-                              updateBillItem(item.id, { weight: value });
+                        <div className="flex items-center space-x-2">
+                          <Scale className="h-4 w-4 text-gray-400" />
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={item.weight}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value);
+                              if (!isNaN(value) && value > 0) {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { weight: value });
+                                } else {
+                                updateBillItem(item.id, { weight: value });
+                                }
                               }
-                            }
-                          }}
-                          className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
-                        />
-                        <span className="text-sm text-gray-600 ml-1">g</span>
+                            }}
+                            className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                          />
+                          <span className="text-sm text-gray-600">g</span>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={item.rate}
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value);
-                            if (!isNaN(value) && value > 0) {
-                              if (activeTab === 'exchange') {
-                                updateExchangeItem(item.id, { rate: value });
-                              } else {
-                              updateBillItem(item.id, { rate: value });
+                        <div className="flex items-center space-x-2">
+                          <span className="text-gray-400 font-bold">₹</span>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={item.rate}
+                            onChange={(e) => {
+                              const value = parseInt(e.target.value);
+                              if (!isNaN(value) && value > 0) {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { rate: value });
+                                } else {
+                                updateBillItem(item.id, { rate: value });
+                                }
                               }
-                            }
-                          }}
-                          className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
-                        />
+                            }}
+                            className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                          />
+                        </div>
                       </td>
                       <td className="px-6 py-4">
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={item.making_charge}
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value);
-                            if (!isNaN(value) && value >= 0) {
-                              if (activeTab === 'exchange') {
-                                updateExchangeItem(item.id, { making_charge: value });
-                              } else {
-                                updateBillItem(item.id, { making_charge: value });
+                        <div className="flex items-center space-x-2">
+                          <Wrench className="h-4 w-4 text-gray-400" />
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={item.making_charge}
+                            onChange={(e) => {
+                              const value = parseInt(e.target.value);
+                              if (!isNaN(value) && value >= 0) {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { making_charge: value });
+                                } else {
+                                  updateBillItem(item.id, { making_charge: value });
+                                }
                               }
-                            }
-                          }}
-                          className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
-                        />
+                            }}
+                            className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                          />
+                        </div>
                       </td>
                       <td className="px-6 py-4">
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={item.quantity}
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value);
-                            if (!isNaN(value) && value > 0) {
-                              if (activeTab === 'exchange') {
-                                updateExchangeItem(item.id, { quantity: value });
-                              } else {
-                              updateBillItem(item.id, { quantity: value });
+                        <div className="flex items-center space-x-2">
+                          <Hash className="h-4 w-4 text-gray-400" />
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={item.quantity}
+                            onChange={(e) => {
+                              const value = parseInt(e.target.value);
+                              if (!isNaN(value) && value > 0) {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { quantity: value });
+                                } else {
+                                updateBillItem(item.id, { quantity: value });
+                                }
                               }
-                            }
-                          }}
-                          className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
-                        />
+                            }}
+                            className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                          />
+                        </div>
                       </td>
                       <td className="px-6 py-4">
-                        <p className="font-medium text-gray-900">₹{item.total.toLocaleString()}</p>
+                        <div className="flex items-center space-x-2">
+                          <Calculator className="h-4 w-4 text-gray-400" />
+                          <p className="font-medium text-gray-900">₹{item.total.toLocaleString()}</p>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
-                        <button
-                          onClick={() => activeTab === 'exchange' ? removeExchangeItem(item.id) : removeBillItem(item.id)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          <Settings className="h-4 w-4 text-gray-400" />
+                          <button
+                            onClick={() => activeTab === 'exchange' ? removeExchangeItem(item.id) : removeBillItem(item.id)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1437,9 +1740,12 @@ const Billing: React.FC = () => {
           {/* Calculation Panel - Only show for billing and invoice tabs */}
           {activeTab !== 'exchange' && (
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              {activeTab === 'billing' ? t('billing.billSummaryDeductStock') : t('billing.invoiceSummaryQuoteEstimate')}
-            </h2>
+            <div className="flex items-center space-x-2 mb-4">
+              <Calculator className="h-5 w-5 text-amber-500" />
+              <h2 className="text-lg font-semibold text-gray-900">
+                {activeTab === 'billing' ? t('billing.billSummaryDeductStock') : t('billing.invoiceSummaryQuoteEstimate')}
+              </h2>
+            </div>
             
             <div className="space-y-4">
               <div className="flex justify-between">
@@ -1453,24 +1759,23 @@ const Billing: React.FC = () => {
                   <input
                     type="number"
                     min="0"
-                    max="100"
                     step="0.01"
-                    value={currentBill.discount_percentage || 0}
+                    value={currentBill.discount_amount || 0}
                     onChange={(e) => {
                       const value = parseFloat(e.target.value);
-                      if (!isNaN(value) && value >= 0 && value <= 100) {
-                        setCurrentBill(prev => ({ ...prev, discount_percentage: value }));
+                      if (!isNaN(value) && value >= 0) {
+                        setCurrentBill(prev => ({ ...prev, discount_amount: value }));
                       }
                     }}
-                    className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                    className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
                   />
-                  <span className="text-sm">%</span>
+                  <span className="text-sm">₹</span>
                 </div>
               </div>
               
               <div className="flex justify-between">
                 <span className="text-gray-600">{t('billing.discountAmount')}:</span>
-                <span className="font-medium text-green-600">-₹{(currentBill.discount_amount || 0).toLocaleString()}</span>
+                <span className="font-medium text-green-600">-₹{Math.round(currentBill.discount_amount || 0).toLocaleString()}</span>
               </div>
               
               <div className="flex justify-between items-center">
@@ -1480,10 +1785,10 @@ const Billing: React.FC = () => {
                     type="number"
                     min="0"
                     max="100"
-                    step="0.01"
-                    value={currentBill.tax_percentage || 3}
+                    step="1"
+                    value={Math.round(currentBill.tax_percentage || 3)}
                     onChange={(e) => {
-                      const value = parseFloat(e.target.value);
+                      const value = parseInt(e.target.value);
                       if (!isNaN(value) && value >= 0 && value <= 100) {
                         setCurrentBill(prev => ({ ...prev, tax_percentage: value }));
                       }
@@ -1561,6 +1866,45 @@ const Billing: React.FC = () => {
           </div>
           )}
 
+          {/* Actions Section - Only show for billing and invoice tabs */}
+          {activeTab !== 'exchange' && (
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+              <div className="flex items-center space-x-2 mb-4">
+                <Settings className="h-5 w-5 text-amber-500" />
+                <h2 className="text-lg font-semibold text-gray-900">Actions</h2>
+              </div>
+              
+              <div className="flex space-x-3">
+                {/* Generate Bill Button */}
+                <button
+                  onClick={activeTab === 'invoice' ? saveInvoice : saveBill}
+                  className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  <FileText className="h-5 w-5" />
+                  <span>{activeTab === 'invoice' ? 'Generate Invoice' : 'Generate Bill'}</span>
+                </button>
+
+                {/* View Invoice Button */}
+                <button
+                  onClick={() => {
+                    // TODO: Implement view invoice functionality
+                    if (activeTab === 'invoice' && recentInvoices.length > 0) {
+                      generateInvoicePDF(recentInvoices[0]);
+                    } else if (activeTab === 'billing' && recentBills.length > 0) {
+                      generateBillPDF(recentBills[0]);
+                    } else {
+                      error('No recent documents to view');
+                    }
+                  }}
+                  className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+                >
+                  <Eye className="h-5 w-5" />
+                  <span>View {activeTab === 'invoice' ? 'Invoice' : 'Bill'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Exchange Bills - Only show for exchange tab */}
           {activeTab === 'exchange' && (
             <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
@@ -1628,43 +1972,15 @@ const Billing: React.FC = () => {
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">
-                {activeTab === 'billing' ? t('billing.allBills') : t('billing.allInvoices')}
+                {activeTab === 'invoice' ? t('billing.allInvoices') : t('billing.allBills')}
               </h2>
               <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full">
-                {activeTab === 'billing' ? recentBills.length : recentInvoices.length} {activeTab === 'billing' ? t('billing.bills') : t('billing.invoices')}
+                {activeTab === 'invoice' ? recentInvoices.length : recentBills.length} {activeTab === 'invoice' ? t('billing.invoices') : t('billing.bills')}
               </span>
             </div>
             
             <div className="space-y-3 max-h-96 overflow-y-auto">
-              {activeTab === 'billing' ? (
-                recentBills.map((bill) => (
-                  <div key={bill.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">{bill.bill_number}</p>
-                      <p className="text-sm text-gray-600">{bill.customer_name}</p>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <div className="text-right">
-                        <p className="font-medium">₹{bill.total_amount.toLocaleString()}</p>
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          bill.payment_status === 'paid' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {bill.payment_status}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => generateBillPDF(bill)}
-                        className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors"
-                        title="Download Bill PDF"
-                      >
-                        <Download className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
+              {activeTab === 'invoice' ? (
                 recentInvoices.map((invoice) => (
                   <div key={invoice.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
                     <div className="flex-1">
@@ -1692,12 +2008,40 @@ const Billing: React.FC = () => {
                     </div>
                   </div>
                 ))
+              ) : (
+                recentBills.map((bill) => (
+                  <div key={bill.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900">{bill.bill_number}</p>
+                      <p className="text-sm text-gray-600">{bill.customer_name}</p>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <div className="text-right">
+                        <p className="font-medium">₹{bill.total_amount.toLocaleString()}</p>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          bill.payment_status === 'paid' 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {bill.payment_status}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => generateBillPDF(bill)}
+                        className="p-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors"
+                        title="Download Bill PDF"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
               )}
-              {((activeTab === 'billing' && recentBills.length === 0) || 
-                (activeTab === 'invoice' && recentInvoices.length === 0)) && (
+              {((activeTab === 'invoice' && recentInvoices.length === 0) || 
+                (activeTab === 'billing' && recentBills.length === 0)) && (
                 <div className="text-center py-8">
                   <p className="text-gray-500">
-                    {activeTab === 'billing' ? t('billing.noBillsFound') : t('billing.noInvoicesFound')}
+                    {activeTab === 'invoice' ? t('billing.noInvoicesFound') : t('billing.noBillsFound')}
                   </p>
                 </div>
               )}
