@@ -6,8 +6,12 @@ import {
   updateCustomer,
   deleteCustomer
 } from '../controllers/customerController.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// All customer routes require authentication
+router.use(authenticate);
 
 // Customer routes
 router.get('/', getAllCustomers);

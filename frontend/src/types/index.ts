@@ -3,6 +3,7 @@ export interface Product {
   name: string;
   category: string;
   product_category?: 'Men' | 'Women' | 'Kids';
+  material_type?: 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Other';
   sku: string;
   barcode?: string;
   weight: number; // in grams
@@ -89,6 +90,7 @@ export interface InvoiceItem {
   weight: number;
   rate: number;
   making_charge: number;
+  wastage_charge?: number;
   quantity: number;
   total: number;
 }

@@ -1,7 +1,11 @@
 import express from 'express';
 import { Database } from '../database/connection.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// All dashboard routes require authentication
+router.use(authenticate);
 
 // Get dashboard statistics
 router.get('/stats', (req, res) => {

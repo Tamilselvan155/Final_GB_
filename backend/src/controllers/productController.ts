@@ -74,6 +74,7 @@ export const createProduct = async (req: Request, res: Response) => {
       name,
       category,
       product_category,
+      material_type,
       sku,
       barcode,
       weight,
@@ -86,19 +87,32 @@ export const createProduct = async (req: Request, res: Response) => {
     } = req.body;
     
     // Validate required fields
-    if (!name || !category || !sku || !weight || !purity || !current_rate) {
+    if (!name || !category || !sku || !weight || !purity) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields'
+        error: 'Missing required fields: name, category, sku, weight, and purity are required'
       });
     }
     
+    // Set default current_rate based on purity if not provided or is 0
+    const defaultRates: { [key: string]: number } = {
+      '24K': 6000,
+      '22K': 5500,
+      '18K': 4800,
+      '14K': 3800,
+    };
+    const finalCurrentRate = current_rate && current_rate > 0 ? current_rate : (defaultRates[purity] || 5500);
+    
+    // Validate material_type if provided
+    const validMaterialTypes = ['Gold', 'Silver', 'Platinum', 'Diamond', 'Other'];
+    const finalMaterialType = material_type && validMaterialTypes.includes(material_type) ? material_type : 'Gold';
+
     const stmt = Database.prepare(`
-      INSERT INTO products (name, category, product_category, sku, barcode, weight, purity, making_charge, current_rate, stock_quantity, min_stock_level, description)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, category, product_category, material_type, sku, barcode, weight, purity, making_charge, current_rate, stock_quantity, min_stock_level, description)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
-    const result = stmt.run(name, category, product_category, sku, barcode, weight, purity, making_charge, current_rate, stock_quantity, min_stock_level, description);
+    const result = stmt.run(name, category, product_category, finalMaterialType, sku, barcode, weight, purity, making_charge, finalCurrentRate, stock_quantity, min_stock_level, description);
     
     // Get the created product
     const getProduct = Database.prepare('SELECT * FROM products WHERE id = ?');

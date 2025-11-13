@@ -1,10 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  User,
   Store,
-  CreditCard,
-  Bell,
-  Shield,
   Download,
   Upload,
   Trash2,
@@ -27,26 +23,15 @@ const Settings: React.FC = () => {
   const { success, error } = useToast();
   const [activeTab, setActiveTab] = useState('business');
   const [businessInfo, setBusinessInfo] = useState({
-    name: 'Golden Jewelers',
-    address: '123 Jewelry Street, Chennai - 600001',
-    phone: '+91 98765 43210',
-    email: 'info@goldenjewelers.com',
-    gstin: '33AAAAA0000A1Z5',
-    license: 'BIS-123456',
+    name: '',
+    address: '',
+    phone: '',
+    email: '',
+    gstin: '',
+    license: '',
   });
-
-  const [taxSettings, setTaxSettings] = useState({
-    gst_rate: 3,
-    making_charge_tax: true,
-    discount_before_tax: true,
-  });
-
-  const [userProfile, setUserProfile] = useState({
-    name: t('common.adminUser'),
-    email: 'admin@goldenjewelers.com',
-    role: 'Owner',
-    phone: '+91 98765 43210',
-  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -60,15 +45,66 @@ const Settings: React.FC = () => {
 
   const tabs = [
     { id: 'business', name: t('settings.businessInfo'), icon: Store },
-    { id: 'user', name: t('settings.userProfile'), icon: User },
-    { id: 'tax', name: t('settings.taxSettings'), icon: CreditCard },
-    { id: 'notifications', name: t('settings.notifications'), icon: Bell },
-    { id: 'security', name: t('settings.security'), icon: Shield },
     { id: 'data', name: t('settings.dataManagement'), icon: Download },
   ];
 
-  const handleSave = () => {
-    success(t('settings.settingsSavedSuccessfully'));
+  // Load business information from database
+  useEffect(() => {
+    const loadBusinessInfo = async () => {
+      setIsLoading(true);
+      try {
+        const db = Database.getInstance();
+        const settings = await db.getSettings();
+        
+        // Map settings keys to businessInfo fields
+        setBusinessInfo({
+          name: settings.company_name || '',
+          address: settings.company_address || '',
+          phone: settings.company_phone || '',
+          email: settings.company_email || '',
+          gstin: settings.gst_number || '',
+          license: settings.bis_license || '',
+        });
+      } catch (err) {
+        console.error('Error loading business info:', err);
+        error('Failed to load business information');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadBusinessInfo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSave = async () => {
+    if (!businessInfo.name.trim() || !businessInfo.address.trim() || !businessInfo.phone.trim()) {
+      error('Please fill in all required fields (Name, Address, Phone)');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const db = Database.getInstance();
+      
+      // Map businessInfo to settings keys
+      const settingsToUpdate: Record<string, string> = {
+        company_name: businessInfo.name,
+        company_address: businessInfo.address,
+        company_phone: businessInfo.phone,
+        company_email: businessInfo.email || '',
+        gst_number: businessInfo.gstin || '',
+        bis_license: businessInfo.license || '',
+      };
+
+      await db.updateSettings(settingsToUpdate);
+      success(t('settings.settingsSavedSuccessfully'));
+    } catch (err) {
+      console.error('Error saving business info:', err);
+      error('Failed to save business information. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Enhanced Data Export Functions
@@ -90,131 +126,771 @@ const Settings: React.FC = () => {
 
       // Progress: 60%
       setExportProgress(60);
-      
-      const exportData = {
-        export_date: new Date().toISOString(),
-        business_info: businessInfo,
-        tax_settings: taxSettings,
-        user_profile: userProfile,
-        data: {
-          products,
-          customers,
-          invoices,
-          bills
-        }
-      };
 
-        // Create Excel workbook with multiple sheets
-        const workbook = XLSX.utils.book_new();
-        
-      // Progress: 50%
-      setExportProgress(50);
+      // Separate regular bills from exchange bills
+      const regularBills = bills?.filter((bill: any) => {
+        const billNumber = bill.bill_number || bill.invoice_number || '';
+        return !billNumber.startsWith('EXCH-');
+      }) || [];
       
-      // Products sheet with proper formatting
+      const exchangeBills = bills?.filter((bill: any) => {
+        const billNumber = bill.bill_number || bill.invoice_number || '';
+        return billNumber.startsWith('EXCH-');
+      }) || [];
+
+      // Progress: 70%
+      setExportProgress(70);
+
+      // Create a single consolidated sheet with all sections
+      // Using a wide column structure to accommodate all data types
+      const allData: any[] = [];
+
+      // ========== SECTION 1: PRODUCTS ==========
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': 'PRODUCTS',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+
+      // Products table headers
+      allData.push({
+        'Section': '',
+        'ID': 'ID',
+        'Name/Number': 'Product Name',
+        'Category/Type': 'Category',
+        'SKU/Phone': 'SKU',
+        'Barcode/Email': 'Barcode',
+        'Weight/Subtotal': 'Weight (g)',
+        'Purity/Tax %': 'Purity',
+        'Material/Tax Amt': 'Material Type',
+        'Making/Discount %': 'Making Charge (₹)',
+        'Rate/Discount Amt': 'Current Rate (₹/g)',
+        'Stock/Total': 'Stock Quantity',
+        'Min Level/Method': 'Min Stock Level',
+        'Status/Payment': 'Status',
+        'Amount Paid': '',
+        'Created At': 'Created At',
+        'Updated At': 'Updated At',
+        'Notes': ''
+      });
+
       if (products && products.length > 0) {
-        const productsData = products.map((product: any) => ({
-          'ID': product.id,
-          'Name': product.name,
-          'Category': product.category,
-          'SKU': product.sku,
-          'Barcode': product.barcode || '',
-          'Weight (g)': product.weight,
-          'Purity': product.purity,
-          'Making Charge (₹)': product.making_charge,
-          'Current Rate (₹/g)': product.current_rate,
-          'Stock Quantity': product.stock_quantity,
-          'Min Stock Level': product.min_stock_level,
-          'Status': product.status,
-          'Created At': new Date(product.created_at).toLocaleDateString('en-IN'),
-          'Updated At': new Date(product.updated_at).toLocaleDateString('en-IN')
-        }));
-        const productsSheet = XLSX.utils.json_to_sheet(productsData);
-        XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products');
+        products.forEach((product: any) => {
+          allData.push({
+            'Section': '',
+            'ID': product.id,
+            'Name/Number': product.name,
+            'Category/Type': product.category,
+            'SKU/Phone': product.sku,
+            'Barcode/Email': product.barcode || '',
+            'Weight/Subtotal': product.weight,
+            'Purity/Tax %': product.purity,
+            'Material/Tax Amt': product.material_type || '',
+            'Making/Discount %': product.making_charge,
+            'Rate/Discount Amt': product.current_rate,
+            'Stock/Total': product.stock_quantity,
+            'Min Level/Method': product.min_stock_level,
+            'Status/Payment': product.status,
+            'Amount Paid': '',
+            'Created At': new Date(product.created_at).toLocaleDateString('en-IN'),
+            'Updated At': new Date(product.updated_at).toLocaleDateString('en-IN'),
+            'Notes': ''
+          });
+        });
+      } else {
+        allData.push({
+          'Section': '',
+          'ID': 'No products found',
+          'Name/Number': '',
+          'Category/Type': '',
+          'SKU/Phone': '',
+          'Barcode/Email': '',
+          'Weight/Subtotal': '',
+          'Purity/Tax %': '',
+          'Material/Tax Amt': '',
+          'Making/Discount %': '',
+          'Rate/Discount Amt': '',
+          'Stock/Total': '',
+          'Min Level/Method': '',
+          'Status/Payment': '',
+          'Amount Paid': '',
+          'Created At': '',
+          'Updated At': '',
+          'Notes': ''
+        });
       }
-      
-      // Customers sheet with proper formatting
+
+      // Add spacing row
+      allData.push({
+        'Section': '',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+
+      // ========== SECTION 2: CUSTOMERS ==========
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': 'CUSTOMERS',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+
+      // Customers table headers
+      allData.push({
+        'Section': '',
+        'ID': 'ID',
+        'Name/Number': 'Name',
+        'Category/Type': 'Customer Type',
+        'SKU/Phone': 'Phone',
+        'Barcode/Email': 'Email',
+        'Weight/Subtotal': 'Address',
+        'Purity/Tax %': 'City',
+        'Material/Tax Amt': 'State',
+        'Making/Discount %': 'Pincode',
+        'Rate/Discount Amt': 'GST Number',
+        'Stock/Total': 'Status',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': 'Created At',
+        'Updated At': 'Updated At',
+        'Notes': ''
+      });
+
       if (customers && customers.length > 0) {
-        const customersData = customers.map((customer: any) => ({
-          'ID': customer.id,
-          'Name': customer.name,
-          'Phone': customer.phone,
-          'Email': customer.email || '',
-          'Address': customer.address || '',
-          'Created At': new Date(customer.created_at).toLocaleDateString('en-IN')
-        }));
-        const customersSheet = XLSX.utils.json_to_sheet(customersData);
-        XLSX.utils.book_append_sheet(workbook, customersSheet, 'Customers');
+        customers.forEach((customer: any) => {
+          allData.push({
+            'Section': '',
+            'ID': customer.id,
+            'Name/Number': customer.name,
+            'Category/Type': customer.customer_type || 'individual',
+            'SKU/Phone': customer.phone || '',
+            'Barcode/Email': customer.email || '',
+            'Weight/Subtotal': customer.address || '',
+            'Purity/Tax %': customer.city || '',
+            'Material/Tax Amt': customer.state || '',
+            'Making/Discount %': customer.pincode || '',
+            'Rate/Discount Amt': customer.gst_number || '',
+            'Stock/Total': customer.status || 'active',
+            'Min Level/Method': '',
+            'Status/Payment': '',
+            'Amount Paid': '',
+            'Created At': new Date(customer.created_at).toLocaleDateString('en-IN'),
+            'Updated At': new Date(customer.updated_at || customer.created_at).toLocaleDateString('en-IN'),
+            'Notes': ''
+          });
+        });
+      } else {
+        allData.push({
+          'Section': '',
+          'ID': 'No customers found',
+          'Name/Number': '',
+          'Category/Type': '',
+          'SKU/Phone': '',
+          'Barcode/Email': '',
+          'Weight/Subtotal': '',
+          'Purity/Tax %': '',
+          'Material/Tax Amt': '',
+          'Making/Discount %': '',
+          'Rate/Discount Amt': '',
+          'Stock/Total': '',
+          'Min Level/Method': '',
+          'Status/Payment': '',
+          'Amount Paid': '',
+          'Created At': '',
+          'Updated At': '',
+          'Notes': ''
+        });
       }
-      
-      // Invoices sheet with proper formatting
+
+      // Add spacing row
+      allData.push({
+        'Section': '',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+
+      // ========== SECTION 3: INVOICES ==========
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': 'INVOICES',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+
+      // Invoices table headers
+      allData.push({
+        'Section': '',
+        'ID': 'ID',
+        'Name/Number': 'Invoice Number',
+        'Category/Type': 'Customer Name',
+        'SKU/Phone': 'Customer Phone',
+        'Barcode/Email': '',
+        'Weight/Subtotal': 'Subtotal (₹)',
+        'Purity/Tax %': 'Tax %',
+        'Material/Tax Amt': 'Tax Amount (₹)',
+        'Making/Discount %': 'Discount %',
+        'Rate/Discount Amt': 'Discount Amount (₹)',
+        'Stock/Total': 'Total Amount (₹)',
+        'Min Level/Method': 'Payment Method',
+        'Status/Payment': 'Payment Status',
+        'Amount Paid': 'Amount Paid (₹)',
+        'Created At': 'Created At',
+        'Updated At': 'Updated At',
+        'Notes': ''
+      });
+
       if (invoices && invoices.length > 0) {
-        const invoicesData = invoices.map((invoice: any) => ({
-          'ID': invoice.id,
-          'Invoice Number': invoice.invoice_number,
-          'Customer Name': invoice.customer_name,
-          'Customer Phone': invoice.customer_phone || '',
-          'Subtotal (₹)': invoice.subtotal,
-          'Tax %': invoice.tax_percentage,
-          'Tax Amount (₹)': invoice.tax_amount,
-          'Discount %': invoice.discount_percentage,
-          'Discount Amount (₹)': invoice.discount_amount,
-          'Total Amount (₹)': invoice.total_amount,
-          'Payment Method': invoice.payment_method,
-          'Payment Status': invoice.payment_status,
-          'Amount Paid (₹)': invoice.amount_paid,
-          'Created At': new Date(invoice.created_at).toLocaleDateString('en-IN'),
-          'Updated At': new Date(invoice.updated_at).toLocaleDateString('en-IN')
-        }));
-        const invoicesSheet = XLSX.utils.json_to_sheet(invoicesData);
-        XLSX.utils.book_append_sheet(workbook, invoicesSheet, 'Invoices');
+        invoices.forEach((invoice: any) => {
+          allData.push({
+            'Section': '',
+            'ID': invoice.id,
+            'Name/Number': invoice.invoice_number,
+            'Category/Type': invoice.customer_name,
+            'SKU/Phone': invoice.customer_phone || '',
+            'Barcode/Email': '',
+            'Weight/Subtotal': invoice.subtotal,
+            'Purity/Tax %': invoice.tax_percentage,
+            'Material/Tax Amt': invoice.tax_amount,
+            'Making/Discount %': invoice.discount_percentage,
+            'Rate/Discount Amt': invoice.discount_amount,
+            'Stock/Total': invoice.total_amount,
+            'Min Level/Method': invoice.payment_method,
+            'Status/Payment': invoice.payment_status,
+            'Amount Paid': invoice.amount_paid,
+            'Created At': new Date(invoice.created_at).toLocaleDateString('en-IN'),
+            'Updated At': new Date(invoice.updated_at).toLocaleDateString('en-IN'),
+            'Notes': ''
+          });
+        });
+      } else {
+        allData.push({
+          'Section': '',
+          'ID': 'No invoices found',
+          'Name/Number': '',
+          'Category/Type': '',
+          'SKU/Phone': '',
+          'Barcode/Email': '',
+          'Weight/Subtotal': '',
+          'Purity/Tax %': '',
+          'Material/Tax Amt': '',
+          'Making/Discount %': '',
+          'Rate/Discount Amt': '',
+          'Stock/Total': '',
+          'Min Level/Method': '',
+          'Status/Payment': '',
+          'Amount Paid': '',
+          'Created At': '',
+          'Updated At': '',
+          'Notes': ''
+        });
       }
-      
-      // Bills sheet with proper formatting
-      if (bills && bills.length > 0) {
-        const billsData = bills.map((bill: any) => ({
-          'ID': bill.id,
-          'Bill Number': bill.bill_number,
-          'Customer Name': bill.customer_name,
-          'Customer Phone': bill.customer_phone || '',
-          'Subtotal (₹)': bill.subtotal,
-          'Tax %': bill.tax_percentage,
-          'Tax Amount (₹)': bill.tax_amount,
-          'Discount %': bill.discount_percentage,
-          'Discount Amount (₹)': bill.discount_amount,
-          'Total Amount (₹)': bill.total_amount,
-          'Payment Method': bill.payment_method,
-          'Payment Status': bill.payment_status,
-          'Amount Paid (₹)': bill.amount_paid,
-          'Created At': new Date(bill.created_at).toLocaleDateString('en-IN'),
-          'Updated At': new Date(bill.updated_at).toLocaleDateString('en-IN')
-        }));
-        const billsSheet = XLSX.utils.json_to_sheet(billsData);
-        XLSX.utils.book_append_sheet(workbook, billsSheet, 'Bills');
+
+      // Add spacing row
+      allData.push({
+        'Section': '',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+
+      // ========== SECTION 4: BILLS ==========
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': 'BILLS',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+
+      // Bills table headers
+      allData.push({
+        'Section': '',
+        'ID': 'ID',
+        'Name/Number': 'Bill Number',
+        'Category/Type': 'Customer Name',
+        'SKU/Phone': 'Customer Phone',
+        'Barcode/Email': '',
+        'Weight/Subtotal': 'Subtotal (₹)',
+        'Purity/Tax %': 'Tax %',
+        'Material/Tax Amt': 'Tax Amount (₹)',
+        'Making/Discount %': 'Discount %',
+        'Rate/Discount Amt': 'Discount Amount (₹)',
+        'Stock/Total': 'Total Amount (₹)',
+        'Min Level/Method': 'Payment Method',
+        'Status/Payment': 'Payment Status',
+        'Amount Paid': 'Amount Paid (₹)',
+        'Created At': 'Created At',
+        'Updated At': 'Updated At',
+        'Notes': ''
+      });
+
+      if (regularBills && regularBills.length > 0) {
+        regularBills.forEach((bill: any) => {
+          allData.push({
+            'Section': '',
+            'ID': bill.id,
+            'Name/Number': bill.bill_number || bill.invoice_number,
+            'Category/Type': bill.customer_name,
+            'SKU/Phone': bill.customer_phone || '',
+            'Barcode/Email': '',
+            'Weight/Subtotal': bill.subtotal,
+            'Purity/Tax %': bill.tax_percentage,
+            'Material/Tax Amt': bill.tax_amount,
+            'Making/Discount %': bill.discount_percentage,
+            'Rate/Discount Amt': bill.discount_amount,
+            'Stock/Total': bill.total_amount,
+            'Min Level/Method': bill.payment_method,
+            'Status/Payment': bill.payment_status,
+            'Amount Paid': bill.amount_paid,
+            'Created At': new Date(bill.created_at).toLocaleDateString('en-IN'),
+            'Updated At': new Date(bill.updated_at).toLocaleDateString('en-IN'),
+            'Notes': ''
+          });
+        });
+      } else {
+        allData.push({
+          'Section': '',
+          'ID': 'No bills found',
+          'Name/Number': '',
+          'Category/Type': '',
+          'SKU/Phone': '',
+          'Barcode/Email': '',
+          'Weight/Subtotal': '',
+          'Purity/Tax %': '',
+          'Material/Tax Amt': '',
+          'Making/Discount %': '',
+          'Rate/Discount Amt': '',
+          'Stock/Total': '',
+          'Min Level/Method': '',
+          'Status/Payment': '',
+          'Amount Paid': '',
+          'Created At': '',
+          'Updated At': '',
+          'Notes': ''
+        });
       }
-        
-        // Business info sheet
-      const businessData = [{
-        'Business Name': businessInfo.name,
-        'Address': businessInfo.address,
-        'Phone': businessInfo.phone,
-        'Email': businessInfo.email,
-        'GSTIN': businessInfo.gstin,
-        'BIS License': businessInfo.license,
-        'Export Date': new Date().toLocaleDateString('en-IN')
-      }];
-      const businessSheet = XLSX.utils.json_to_sheet(businessData);
-        XLSX.utils.book_append_sheet(workbook, businessSheet, 'Business Info');
+
+      // Add spacing row
+      allData.push({
+        'Section': '',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+
+      // ========== SECTION 5: EXCHANGE BILLS ==========
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': 'EXCHANGE BILLS',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+      allData.push({
+        'Section': '════════════════════════════════════════════════════════════════════════════════',
+        'ID': '',
+        'Name/Number': '',
+        'Category/Type': '',
+        'SKU/Phone': '',
+        'Barcode/Email': '',
+        'Weight/Subtotal': '',
+        'Purity/Tax %': '',
+        'Material/Tax Amt': '',
+        'Making/Discount %': '',
+        'Rate/Discount Amt': '',
+        'Stock/Total': '',
+        'Min Level/Method': '',
+        'Status/Payment': '',
+        'Amount Paid': '',
+        'Created At': '',
+        'Updated At': '',
+        'Notes': ''
+      });
+
+      // Exchange Bills table headers
+      allData.push({
+        'Section': '',
+        'ID': 'ID',
+        'Name/Number': 'Exchange Bill Number',
+        'Category/Type': 'Customer Name',
+        'SKU/Phone': 'Customer Phone',
+        'Barcode/Email': 'Old Gold Weight & Purity',
+        'Weight/Subtotal': 'Old Gold Rate (₹/g)',
+        'Purity/Tax %': 'Old Gold Value (₹)',
+        'Material/Tax Amt': 'Exchange Rate (₹/g)',
+        'Making/Discount %': 'Exchange Difference (₹)',
+        'Rate/Discount Amt': 'Total Amount (₹)',
+        'Stock/Total': 'Payment Method',
+        'Min Level/Method': 'Payment Status',
+        'Status/Payment': 'Amount Paid (₹)',
+        'Amount Paid': '',
+        'Created At': 'Created At',
+        'Updated At': 'Updated At',
+        'Notes': ''
+      });
+
+      if (exchangeBills && exchangeBills.length > 0) {
+        exchangeBills.forEach((bill: any) => {
+          allData.push({
+            'Section': '',
+            'ID': bill.id,
+            'Name/Number': bill.bill_number || bill.invoice_number,
+            'Category/Type': bill.customer_name,
+            'SKU/Phone': bill.customer_phone || '',
+            'Barcode/Email': `${bill.old_gold_weight || 0}g (${bill.old_gold_purity || ''})`,
+            'Weight/Subtotal': bill.old_gold_rate || 0,
+            'Purity/Tax %': bill.old_gold_value || 0,
+            'Material/Tax Amt': bill.exchange_rate || 0,
+            'Making/Discount %': bill.exchange_difference || 0,
+            'Rate/Discount Amt': bill.total_amount,
+            'Stock/Total': bill.payment_method,
+            'Min Level/Method': bill.payment_status,
+            'Status/Payment': bill.amount_paid,
+            'Amount Paid': '',
+            'Created At': new Date(bill.created_at).toLocaleDateString('en-IN'),
+            'Updated At': new Date(bill.updated_at).toLocaleDateString('en-IN'),
+            'Notes': ''
+          });
+        });
+      } else {
+        allData.push({
+          'Section': '',
+          'ID': 'No exchange bills found',
+          'Name/Number': '',
+          'Category/Type': '',
+          'SKU/Phone': '',
+          'Barcode/Email': '',
+          'Weight/Subtotal': '',
+          'Purity/Tax %': '',
+          'Material/Tax Amt': '',
+          'Making/Discount %': '',
+          'Rate/Discount Amt': '',
+          'Stock/Total': '',
+          'Min Level/Method': '',
+          'Status/Payment': '',
+          'Amount Paid': '',
+          'Created At': '',
+          'Updated At': '',
+          'Notes': ''
+        });
+      }
+
+      // Progress: 80%
+      setExportProgress(80);
+
+      // Create single consolidated sheet
+      const workbook = XLSX.utils.book_new();
+      const consolidatedSheet = XLSX.utils.json_to_sheet(allData);
+      XLSX.utils.book_append_sheet(workbook, consolidatedSheet, 'All Data');
       
-      // Tax settings sheet
-      const taxData = [{
-        'GST Rate (%)': taxSettings.gst_rate,
-        'Apply Tax on Making Charges': taxSettings.making_charge_tax ? 'Yes' : 'No',
-        'Apply Discount Before Tax': taxSettings.discount_before_tax ? 'Yes' : 'No',
-        'Export Date': new Date().toLocaleDateString('en-IN')
-      }];
-      const taxSheet = XLSX.utils.json_to_sheet(taxData);
-      XLSX.utils.book_append_sheet(workbook, taxSheet, 'Tax Settings');
-        
         // Progress: 80%
         setExportProgress(80);
         
@@ -238,7 +914,7 @@ const Settings: React.FC = () => {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
         
-      success(`All data exported to Excel successfully! ${workbook.SheetNames.length} sheets created.`);
+      success(`All data exported to Excel successfully! ${allData.length} rows exported across 5 sections.`);
       
       // Progress: 100%
       setExportProgress(100);
@@ -249,7 +925,7 @@ const Settings: React.FC = () => {
         products: products?.length || 0,
         customers: customers?.length || 0,
         invoices: invoices?.length || 0,
-        bills: bills?.length || 0
+        bills: (regularBills.length || 0) + (exchangeBills.length || 0)
       });
       
     } catch (err) {
@@ -265,10 +941,7 @@ const Settings: React.FC = () => {
     setIsExporting(true);
     try {
       const db = Database.getInstance();
-      const [invoices, bills] = await Promise.all([
-        db.query('invoices'),
-        db.query('bills')
-      ]);
+      const invoices = await db.query('invoices');
 
       // Create Excel workbook
       const workbook = XLSX.utils.book_new();
@@ -295,12 +968,49 @@ const Settings: React.FC = () => {
         const invoicesSheet = XLSX.utils.json_to_sheet(invoicesData);
         XLSX.utils.book_append_sheet(workbook, invoicesSheet, 'Invoices');
       }
+
+      // Generate Excel file
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const dataBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(dataBlob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `invoices-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      success('Invoices exported to Excel successfully!');
+    } catch (err) {
+      console.error('Export error:', err);
+      error('Failed to export invoices. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const exportBills = async () => {
+    setIsExporting(true);
+    try {
+      const db = Database.getInstance();
+      const bills = await db.query('bills');
+
+      // Filter out exchange bills (bills with bill_number starting with 'EXCH-')
+      const regularBills = bills.filter((bill: any) => {
+        const billNumber = bill.bill_number || bill.invoice_number || '';
+        return !billNumber.startsWith('EXCH-');
+      });
+
+      // Create Excel workbook
+      const workbook = XLSX.utils.book_new();
       
       // Bills sheet
-      if (bills && bills.length > 0) {
-        const billsData = bills.map((bill: any) => ({
+      if (regularBills && regularBills.length > 0) {
+        const billsData = regularBills.map((bill: any) => ({
           'ID': bill.id,
-          'Bill Number': bill.bill_number,
+          'Bill Number': bill.bill_number || bill.invoice_number,
           'Customer Name': bill.customer_name,
           'Customer Phone': bill.customer_phone || '',
           'Subtotal (₹)': bill.subtotal,
@@ -326,16 +1036,133 @@ const Settings: React.FC = () => {
       
       const link = document.createElement('a');
       link.href = url;
-      link.download = `invoices-bills-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      link.download = `bills-export-${new Date().toISOString().split('T')[0]}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      success('Invoices and bills exported to Excel successfully!');
+      success('Bills exported to Excel successfully!');
     } catch (err) {
       console.error('Export error:', err);
-      error('Failed to export invoices. Please try again.');
+      error('Failed to export bills. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const exportExchangeBills = async () => {
+    setIsExporting(true);
+    try {
+      const db = Database.getInstance();
+      const bills = await db.query('bills');
+
+      // Filter only exchange bills (bills with bill_number starting with 'EXCH-')
+      const exchangeBills = bills.filter((bill: any) => {
+        const billNumber = bill.bill_number || bill.invoice_number || '';
+        return billNumber.startsWith('EXCH-');
+      });
+
+      // Create Excel workbook
+      const workbook = XLSX.utils.book_new();
+      
+      // Exchange Bills sheet
+      if (exchangeBills && exchangeBills.length > 0) {
+        const exchangeBillsData = exchangeBills.map((bill: any) => ({
+          'ID': bill.id,
+          'Exchange Bill Number': bill.bill_number || bill.invoice_number,
+          'Customer Name': bill.customer_name,
+          'Customer Phone': bill.customer_phone || '',
+          'Old Gold Weight (g)': bill.old_gold_weight || '',
+          'Old Gold Purity': bill.old_gold_purity || '',
+          'Old Gold Rate (₹/g)': bill.old_gold_rate || '',
+          'Old Gold Value (₹)': bill.old_gold_value || '',
+          'Exchange Rate (₹/g)': bill.exchange_rate || '',
+          'Exchange Difference (₹)': bill.exchange_difference || '',
+          'Subtotal (₹)': bill.subtotal,
+          'Tax %': bill.tax_percentage,
+          'Tax Amount (₹)': bill.tax_amount,
+          'Discount %': bill.discount_percentage,
+          'Discount Amount (₹)': bill.discount_amount,
+          'Total Amount (₹)': bill.total_amount,
+          'Payment Method': bill.payment_method,
+          'Payment Status': bill.payment_status,
+          'Amount Paid (₹)': bill.amount_paid,
+          'Created At': new Date(bill.created_at).toLocaleDateString('en-IN'),
+          'Updated At': new Date(bill.updated_at).toLocaleDateString('en-IN')
+        }));
+        const exchangeBillsSheet = XLSX.utils.json_to_sheet(exchangeBillsData);
+        XLSX.utils.book_append_sheet(workbook, exchangeBillsSheet, 'Exchange Bills');
+      }
+
+      // Generate Excel file
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const dataBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(dataBlob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `exchange-bills-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      success('Exchange bills exported to Excel successfully!');
+    } catch (err) {
+      console.error('Export error:', err);
+      error('Failed to export exchange bills. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const exportCustomers = async () => {
+    setIsExporting(true);
+    try {
+      const db = Database.getInstance();
+      const customers = await db.query('customers');
+
+      // Create Excel workbook
+      const workbook = XLSX.utils.book_new();
+      
+      if (customers && customers.length > 0) {
+        const customersData = customers.map((customer: any) => ({
+          'ID': customer.id,
+          'Name': customer.name,
+          'Phone': customer.phone,
+          'Email': customer.email || '',
+          'Address': customer.address || '',
+          'City': customer.city || '',
+          'State': customer.state || '',
+          'Pincode': customer.pincode || '',
+          'GST Number': customer.gst_number || '',
+          'Customer Type': customer.customer_type || 'individual',
+          'Status': customer.status || 'active',
+          'Created At': new Date(customer.created_at).toLocaleDateString('en-IN'),
+          'Updated At': new Date(customer.updated_at).toLocaleDateString('en-IN')
+        }));
+        const customersSheet = XLSX.utils.json_to_sheet(customersData);
+        XLSX.utils.book_append_sheet(workbook, customersSheet, 'Customers');
+      }
+
+      // Generate Excel file
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const dataBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(dataBlob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `customers-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      success('Customers exported to Excel successfully!');
+    } catch (err) {
+      console.error('Export error:', err);
+      error('Failed to export customers. Please try again.');
     } finally {
       setIsExporting(false);
     }
@@ -393,55 +1220,6 @@ const Settings: React.FC = () => {
     }
   };
 
-  const exportProductsCSV = async () => {
-    setIsExporting(true);
-    try {
-      const db = Database.getInstance();
-      const products = await db.query('products');
-
-      // Create CSV header
-      const headers = ['ID', 'Name', 'Category', 'SKU', 'Barcode', 'Weight', 'Purity', 'Making Charge', 'Current Rate', 'Stock Quantity', 'Min Stock Level', 'Status', 'Created At'];
-      
-      // Create CSV rows
-      const csvRows = [
-        headers.join(','),
-        ...products.map((product: any) => [
-          product.id,
-          `"${product.name}"`,
-          `"${product.category}"`,
-          `"${product.sku}"`,
-          `"${product.barcode || ''}"`,
-          product.weight,
-          `"${product.purity}"`,
-          product.making_charge,
-          product.current_rate,
-          product.stock_quantity,
-          product.min_stock_level,
-          `"${product.status}"`,
-          `"${product.created_at}"`
-        ].join(','))
-      ];
-
-      const csvContent = csvRows.join('\n');
-      const dataBlob = new Blob([csvContent], { type: 'text/csv' });
-      const url = URL.createObjectURL(dataBlob);
-      
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `products-export-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      success('Products exported as CSV successfully!');
-    } catch (err) {
-      console.error('CSV Export error:', err);
-      error('Failed to export products as CSV. Please try again.');
-    } finally {
-      setIsExporting(false);
-    }
-  };
 
   // Enhanced Data Import Functions
   const handleFileImport = (type: 'products' | 'customers' | 'all') => {
@@ -487,7 +1265,7 @@ const Settings: React.FC = () => {
         
         // Convert array of arrays to array of objects
         const headers = jsonData[0] as string[];
-        const rows = jsonData.slice(1);
+        const rows = jsonData.slice(1) as any[][];
         const objects = rows.map((row: any[]) => {
           const obj: any = {};
           headers.forEach((header, index) => {
@@ -508,8 +1286,6 @@ const Settings: React.FC = () => {
           importData.bills = objects;
           } else if (sheetName.toLowerCase().includes('business')) {
           importData.business_info = objects[0];
-        } else if (sheetName.toLowerCase().includes('tax')) {
-          importData.tax_settings = objects[0];
           }
         });
         
@@ -517,7 +1293,7 @@ const Settings: React.FC = () => {
 
       // Validate and clean data
       setImportProgress(60);
-      const cleanedData = validateAndCleanData(importData, type);
+      const cleanedData = validateAndCleanData(importData);
       
       // Import data based on type
       if (type === 'all') {
@@ -619,20 +1395,11 @@ const Settings: React.FC = () => {
         }
       }
       
-      // Update business info and tax settings if available
+      // Update business info if available
       if (cleanedData.business_info) {
         setBusinessInfo(prev => ({
           ...prev,
           ...cleanedData.business_info
-        }));
-      }
-      
-      if (cleanedData.tax_settings) {
-        setTaxSettings(prev => ({
-          ...prev,
-          gst_rate: parseFloat(cleanedData.tax_settings['GST Rate (%)']) || prev.gst_rate,
-          making_charge_tax: cleanedData.tax_settings['Apply Tax on Making Charges'] === 'Yes' || prev.making_charge_tax,
-          discount_before_tax: cleanedData.tax_settings['Apply Discount Before Tax'] === 'Yes' || prev.discount_before_tax
         }));
       }
       
@@ -652,7 +1419,7 @@ const Settings: React.FC = () => {
   };
 
   // Data validation and cleaning function
-  const validateAndCleanData = (data: any, type: string) => {
+  const validateAndCleanData = (data: any) => {
     const cleaned: any = {};
     
     if (data.products && Array.isArray(data.products)) {
@@ -764,13 +1531,9 @@ const Settings: React.FC = () => {
       });
     }
     
-    // Handle business info and tax settings
+    // Handle business info
     if (data.business_info) {
       cleaned.business_info = data.business_info;
-    }
-    
-    if (data.tax_settings) {
-      cleaned.tax_settings = data.tax_settings;
     }
     
     return cleaned;
@@ -802,8 +1565,6 @@ const Settings: React.FC = () => {
       const syncData = {
         sync_date: new Date().toISOString(),
         business_info: businessInfo,
-        tax_settings: taxSettings,
-        user_profile: userProfile,
         data: {
           products,
           customers,
@@ -913,34 +1674,48 @@ const Settings: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">{t('settings.title')}</h1>
           <p className="text-gray-600 mt-1">{t('settings.subtitle')}</p>
         </div>
         <button
           onClick={handleSave}
-          className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+          disabled={isSaving || isLoading}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+            isSaving || isLoading
+              ? 'bg-gray-400 text-white cursor-not-allowed'
+              : 'bg-amber-500 text-white hover:bg-amber-600'
+          }`}
         >
-          <Save className="h-4 w-4" />
-          <span>{t('settings.saveChanges')}</span>
+          {isSaving ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+              <span>Saving...</span>
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4" />
+              <span>{t('settings.saveChanges')}</span>
+            </>
+          )}
         </button>
       </div>
 
-      <div className="flex space-x-6">
-        {/* Settings Navigation */}
-        <div className="w-64 bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <nav className="space-y-2">
+      {/* Horizontal Tabs Navigation */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="border-b border-gray-200">
+          <nav className="flex">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${
+                  className={`flex-1 flex items-center justify-center space-x-2 px-6 py-4 border-b-2 transition-all ${
                     activeTab === tab.id
-                      ? 'bg-amber-100 text-amber-700 border-r-4 border-amber-500'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                      ? 'border-amber-500 text-amber-600 bg-amber-50'
+                      : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 hover:bg-gray-50'
                   }`}
                 >
                   <Icon className="h-5 w-5" />
@@ -952,218 +1727,115 @@ const Settings: React.FC = () => {
         </div>
 
         {/* Settings Content */}
-        <div className="flex-1 bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+        <div className="p-6">
           {activeTab === 'business' && (
             <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">{t('settings.businessInformation')}</h2>
-              
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.businessName')} *
-                  </label>
-                  <input
-                    type="text"
-                    value={businessInfo.name}
-                    onChange={(e) => setBusinessInfo({ ...businessInfo, name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.phoneNumber')} *
-                  </label>
-                  <input
-                    type="tel"
-                    value={businessInfo.phone}
-                    onChange={(e) => setBusinessInfo({ ...businessInfo, phone: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                </div>
-                
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.businessAddress')} *
-                  </label>
-                  <textarea
-                    value={businessInfo.address}
-                    onChange={(e) => setBusinessInfo({ ...businessInfo, address: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                    rows={3}
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.emailAddress')}
-                  </label>
-                  <input
-                    type="email"
-                    value={businessInfo.email}
-                    onChange={(e) => setBusinessInfo({ ...businessInfo, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.gstin')}
-                  </label>
-                  <input
-                    type="text"
-                    value={businessInfo.gstin}
-                    onChange={(e) => setBusinessInfo({ ...businessInfo, gstin: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                </div>
-                
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.bisLicenseNumber')}
-                  </label>
-                  <input
-                    type="text"
-                    value={businessInfo.license}
-                    onChange={(e) => setBusinessInfo({ ...businessInfo, license: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'user' && (
-            <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">{t('settings.userProfileTitle')}</h2>
-              
-              <div className="flex items-center space-x-6">
-                <div className="h-20 w-20 bg-amber-100 rounded-full flex items-center justify-center">
-                  <User className="h-10 w-10 text-amber-600" />
-                </div>
-                <div>
-                  <button className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors">
-                    {t('settings.uploadPhoto')}
-                  </button>
-                  <p className="text-sm text-gray-600 mt-2">{t('settings.photoRequirements')}</p>
-                </div>
+              <div className="flex items-center space-x-3 pb-4 border-b border-gray-200">
+                <Store className="h-6 w-6 text-amber-600" />
+                <h2 className="text-xl font-semibold text-gray-900">{t('settings.businessInformation')}</h2>
               </div>
               
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.fullName')} *
-                  </label>
-                  <input
-                    type="text"
-                    value={userProfile.name}
-                    onChange={(e) => setUserProfile({ ...userProfile, name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-2 border-amber-500 border-t-transparent"></div>
+                  <span className="ml-3 text-gray-600">Loading business information...</span>
                 </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.userEmailAddress')} *
-                  </label>
-                  <input
-                    type="email"
-                    value={userProfile.email}
-                    onChange={(e) => setUserProfile({ ...userProfile, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.userPhoneNumber')}
-                  </label>
-                  <input
-                    type="tel"
-                    value={userProfile.phone}
-                    onChange={(e) => setUserProfile({ ...userProfile, phone: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.role')}
-                  </label>
-                  <select
-                    value={userProfile.role}
-                    onChange={(e) => setUserProfile({ ...userProfile, role: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  >
-                    <option value="Owner">{t('settings.owner')}</option>
-                    <option value="Manager">{t('settings.manager')}</option>
-                    <option value="Staff">{t('settings.staff')}</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'tax' && (
-            <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">{t('settings.taxConfiguration')}</h2>
-              
-              <div className="space-y-6">
+              ) : (
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('settings.defaultGstRate')}
+                      {t('settings.businessName')} *
                     </label>
                     <input
-                      type="number"
-                      step="0.1"
-                      value={taxSettings.gst_rate}
-                      onChange={(e) => setTaxSettings({ ...taxSettings, gst_rate: parseFloat(e.target.value) })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      type="text"
+                      value={businessInfo.name}
+                      onChange={(e) => setBusinessInfo({ ...businessInfo, name: e.target.value })}
+                      disabled={isSaving}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      placeholder="Enter business name"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('settings.phoneNumber')} *
+                    </label>
+                    <input
+                      type="tel"
+                      value={businessInfo.phone}
+                      onChange={(e) => setBusinessInfo({ ...businessInfo, phone: e.target.value })}
+                      disabled={isSaving}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      placeholder="+91 98765 43210"
+                    />
+                  </div>
+                  
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('settings.businessAddress')} *
+                    </label>
+                    <textarea
+                      value={businessInfo.address}
+                      onChange={(e) => setBusinessInfo({ ...businessInfo, address: e.target.value })}
+                      disabled={isSaving}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      rows={3}
+                      placeholder="Enter complete business address"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('settings.emailAddress')}
+                    </label>
+                    <input
+                      type="email"
+                      value={businessInfo.email}
+                      onChange={(e) => setBusinessInfo({ ...businessInfo, email: e.target.value })}
+                      disabled={isSaving}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      placeholder="info@business.com"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('settings.gstin')}
+                    </label>
+                    <input
+                      type="text"
+                      value={businessInfo.gstin}
+                      onChange={(e) => setBusinessInfo({ ...businessInfo, gstin: e.target.value })}
+                      disabled={isSaving}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      placeholder="33AAAAA0000A1Z5"
+                    />
+                  </div>
+                  
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('settings.bisLicenseNumber')}
+                    </label>
+                    <input
+                      type="text"
+                      value={businessInfo.license}
+                      onChange={(e) => setBusinessInfo({ ...businessInfo, license: e.target.value })}
+                      disabled={isSaving}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      placeholder="BIS-123456"
                     />
                   </div>
                 </div>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                    <div>
-                      <h3 className="font-medium text-gray-900">{t('settings.applyTaxOnMakingCharges')}</h3>
-                      <p className="text-sm text-gray-600">{t('settings.includeMakingChargesInTax')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={taxSettings.making_charge_tax}
-                        onChange={(e) => setTaxSettings({ ...taxSettings, making_charge_tax: e.target.checked })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-                    </label>
-                  </div>
-                  
-                  <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                    <div>
-                      <h3 className="font-medium text-gray-900">{t('settings.applyDiscountBeforeTax')}</h3>
-                      <p className="text-sm text-gray-600">{t('settings.calculateTaxOnDiscountedAmount')}</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={taxSettings.discount_before_tax}
-                        onChange={(e) => setTaxSettings({ ...taxSettings, discount_before_tax: e.target.checked })}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-                    </label>
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
           )}
 
           {activeTab === 'data' && (
             <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">{t('settings.dataManagementTitle')}</h2>
+              <div className="flex items-center space-x-3 pb-4 border-b border-gray-200">
+                <Download className="h-6 w-6 text-amber-600" />
+                <h2 className="text-xl font-semibold text-gray-900">{t('settings.dataManagementTitle')}</h2>
+              </div>
               
               <div className="space-y-6">
                 {/* Cloud Sync Section */}
@@ -1228,7 +1900,7 @@ const Settings: React.FC = () => {
                   <p className="text-sm text-gray-600 mb-4">
                     Export your data in Excel format for backup purposes or data migration.
                   </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <button 
                       onClick={exportAllData}
                       disabled={isExporting}
@@ -1240,18 +1912,6 @@ const Settings: React.FC = () => {
                     >
                       <FileSpreadsheet className="h-4 w-4" />
                       <span>Export All (Excel)</span>
-                    </button>
-                    <button 
-                      onClick={exportInvoices}
-                      disabled={isExporting}
-                      className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
-                        isExporting 
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                          : 'bg-blue-500 text-white hover:bg-blue-600'
-                      }`}
-                    >
-                      <Download className="h-4 w-4" />
-                      <span>{t('settings.exportInvoices')}</span>
                     </button>
                     <button 
                       onClick={exportProducts}
@@ -1266,16 +1926,52 @@ const Settings: React.FC = () => {
                       <span>{t('settings.exportProducts')}</span>
                     </button>
                     <button 
-                      onClick={exportProductsCSV}
+                      onClick={exportInvoices}
                       disabled={isExporting}
                       className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
                         isExporting 
                           ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                          : 'bg-indigo-500 text-white hover:bg-indigo-600'
+                          : 'bg-blue-500 text-white hover:bg-blue-600'
                       }`}
                     >
                       <Download className="h-4 w-4" />
-                      <span>Export Products (CSV)</span>
+                      <span>Export Invoices</span>
+                    </button>
+                    <button 
+                      onClick={exportBills}
+                      disabled={isExporting}
+                      className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                        isExporting 
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                          : 'bg-amber-500 text-white hover:bg-amber-600'
+                      }`}
+                    >
+                      <Download className="h-4 w-4" />
+                      <span>Export Bills</span>
+                    </button>
+                    <button 
+                      onClick={exportExchangeBills}
+                      disabled={isExporting}
+                      className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                        isExporting 
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                          : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                      }`}
+                    >
+                      <Download className="h-4 w-4" />
+                      <span>Export Exchange Bills</span>
+                    </button>
+                    <button 
+                      onClick={exportCustomers}
+                      disabled={isExporting}
+                      className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                        isExporting 
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                          : 'bg-teal-500 text-white hover:bg-teal-600'
+                      }`}
+                    >
+                      <Download className="h-4 w-4" />
+                      <span>Export Customers</span>
                     </button>
                   </div>
                   {isExporting && (
@@ -1463,24 +2159,6 @@ const Settings: React.FC = () => {
                   </button>
                 </div>
               </div>
-            </div>
-          )}
-
-          {(activeTab === 'notifications' || activeTab === 'security') && (
-            <div className="text-center py-12">
-              <div className="h-12 w-12 mx-auto bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                {activeTab === 'notifications' ? (
-                  <Bell className="h-6 w-6 text-gray-400" />
-                ) : (
-                  <Shield className="h-6 w-6 text-gray-400" />
-                )}
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                {activeTab === 'notifications' ? t('settings.notificationsTitle') : t('settings.securitySettings')}
-              </h3>
-              <p className="text-gray-600">
-                {t('settings.futureUpdates')}
-              </p>
             </div>
           )}
         </div>

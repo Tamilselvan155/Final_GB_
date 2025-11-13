@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 interface LanguageContextType {
   currentLanguage: string;
   changeLanguage: (language: string) => void;
-  t: (key: string) => string;
+  t: (key: string, options?: any) => string;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);

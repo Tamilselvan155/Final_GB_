@@ -50,6 +50,10 @@ const Billing: React.FC = () => {
   const [exchangeBills, setExchangeBills] = useState<Bill[]>([]);
   const [activeTab, setActiveTab] = useState<'billing' | 'invoice' | 'exchange'>('invoice');
   
+  const handleWheel = (event: React.WheelEvent<HTMLInputElement>) => {
+    event.currentTarget.blur();
+  };
+  
   // Barcode scanner states
   const [barcodeInput, setBarcodeInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -58,13 +62,14 @@ const Billing: React.FC = () => {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Exchange gold states
-  const [exchangeGold, setExchangeGold] = useState({
-    oldGoldWeight: 0,
-    oldGoldPurity: '22K',
-    oldGoldRate: 5500,
-    oldGoldValue: 0,
-    exchangeRate: 5500,
+  // Exchange material states (supports Gold, Silver, Platinum, Diamond, Other)
+  const [exchangeMaterial, setExchangeMaterial] = useState({
+    materialType: 'Gold' as 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Other',
+    oldMaterialWeight: 0,
+    oldMaterialPurity: '22K',
+    oldMaterialRate: 0,
+    oldMaterialValue: 0,
+    exchangeRate: 0,
     exchangeValue: 0,
     difference: 0,
     exchangeItems: [] as InvoiceItem[],
@@ -80,7 +85,7 @@ const Billing: React.FC = () => {
 
   useEffect(() => {
     calculateExchangeTotals();
-  }, [exchangeGold.oldGoldWeight, exchangeGold.oldGoldRate, exchangeGold.exchangeRate, exchangeGold.exchangeItems]);
+  }, [exchangeMaterial.oldMaterialWeight, exchangeMaterial.oldMaterialRate, exchangeMaterial.exchangeRate, exchangeMaterial.exchangeItems]);
 
   const loadData = async () => {
     try {
@@ -107,7 +112,7 @@ const Billing: React.FC = () => {
       setBarcodeCache(new Map());
     } catch (err) {
       console.error('Error loading data:', err);
-      error('Failed to load data. Please try again.');
+      error(t('billing.loadDataError'));
     }
   };
 
@@ -129,16 +134,32 @@ const Billing: React.FC = () => {
   };
 
   const calculateExchangeTotals = () => {
-    const oldGoldValue = exchangeGold.oldGoldWeight * exchangeGold.oldGoldRate;
-    const exchangeItemsTotal = exchangeGold.exchangeItems.reduce((sum, item) => sum + item.total, 0);
-    const difference = exchangeItemsTotal - oldGoldValue;
+    const oldMaterialValue = exchangeMaterial.oldMaterialWeight * exchangeMaterial.oldMaterialRate;
+    const exchangeItemsTotal = exchangeMaterial.exchangeItems.reduce((sum, item) => sum + item.total, 0);
+    const difference = exchangeItemsTotal - oldMaterialValue;
 
-    setExchangeGold(prev => ({
+    setExchangeMaterial(prev => ({
       ...prev,
-      oldGoldValue,
+      oldMaterialValue,
       exchangeValue: exchangeItemsTotal,
       difference,
     }));
+  };
+
+  // Get purity options based on material type
+  const getPurityOptions = (materialType: string) => {
+    switch (materialType) {
+      case 'Gold':
+        return ['24K', '22K', '18K', '14K'];
+      case 'Silver':
+        return ['999', '925', '900', '875'];
+      case 'Platinum':
+        return ['950', '900', '850'];
+      case 'Diamond':
+        return ['D', 'E', 'F', 'G', 'H', 'I', 'J'];
+      default:
+        return ['24K', '22K', '18K', '14K', '999', '925', 'Other'];
+    }
   };
 
   const addProductToBill = (product: Product) => {
@@ -151,7 +172,8 @@ const Billing: React.FC = () => {
       updatedItems[existingItemIndex].quantity += 1;
       updatedItems[existingItemIndex].total = 
         (updatedItems[existingItemIndex].weight * updatedItems[existingItemIndex].rate + 
-         updatedItems[existingItemIndex].making_charge) * updatedItems[existingItemIndex].quantity;
+         updatedItems[existingItemIndex].making_charge + 
+         (updatedItems[existingItemIndex].wastage_charge || 0)) * updatedItems[existingItemIndex].quantity;
       
       setCurrentBill(prev => ({ ...prev, items: updatedItems }));
     } else {
@@ -160,10 +182,11 @@ const Billing: React.FC = () => {
         product_id: product.id,
         product_name: product.name,
         weight: product.weight,
-        rate: product.current_rate,
-        making_charge: product.making_charge,
+        rate: 0, // Start with 0, user will enter in billing
+        making_charge: 0, // Start with 0, user will enter in billing
+        wastage_charge: 0,
         quantity: 1,
-        total: (product.weight * product.current_rate) + product.making_charge,
+        total: 0, // Will be calculated when user enters rate
       };
 
       setCurrentBill(prev => ({
@@ -191,8 +214,11 @@ const Billing: React.FC = () => {
         if (updates.making_charge !== undefined && (isNaN(updates.making_charge) || updates.making_charge < 0)) {
           return item;
         }
+        if (updates.wastage_charge !== undefined && (isNaN(updates.wastage_charge) || updates.wastage_charge < 0)) {
+          return item;
+        }
         
-        updatedItem.total = (updatedItem.weight * updatedItem.rate + updatedItem.making_charge) * updatedItem.quantity;
+        updatedItem.total = (updatedItem.weight * updatedItem.rate + updatedItem.making_charge + (updatedItem.wastage_charge || 0)) * updatedItem.quantity;
         return updatedItem;
       }
       return item;
@@ -208,33 +234,35 @@ const Billing: React.FC = () => {
     }));
   };
 
-  // Exchange gold functions
+  // Exchange material functions
   const addProductToExchange = (product: Product) => {
-    const existingItemIndex = exchangeGold.exchangeItems.findIndex(
+    const existingItemIndex = exchangeMaterial.exchangeItems.findIndex(
       item => item.product_id === product.id
     );
 
     if (existingItemIndex >= 0) {
-      const updatedItems = [...exchangeGold.exchangeItems];
+      const updatedItems = [...exchangeMaterial.exchangeItems];
       updatedItems[existingItemIndex].quantity += 1;
       updatedItems[existingItemIndex].total = 
         (updatedItems[existingItemIndex].weight * updatedItems[existingItemIndex].rate + 
-         updatedItems[existingItemIndex].making_charge) * updatedItems[existingItemIndex].quantity;
+         updatedItems[existingItemIndex].making_charge + 
+         (updatedItems[existingItemIndex].wastage_charge || 0)) * updatedItems[existingItemIndex].quantity;
       
-      setExchangeGold(prev => ({ ...prev, exchangeItems: updatedItems }));
+      setExchangeMaterial(prev => ({ ...prev, exchangeItems: updatedItems }));
     } else {
       const newItem: InvoiceItem = {
         id: Date.now().toString(),
         product_id: product.id,
         product_name: product.name,
         weight: product.weight,
-        rate: product.current_rate,
-        making_charge: product.making_charge,
+        rate: 0, // Start with 0, user will enter in billing
+        making_charge: 0, // Start with 0, user will enter in billing
+        wastage_charge: 0,
         quantity: 1,
-        total: (product.weight * product.current_rate) + product.making_charge,
+        total: 0, // Will be calculated when user enters rate
       };
 
-      setExchangeGold(prev => ({
+      setExchangeMaterial(prev => ({
         ...prev,
         exchangeItems: [...prev.exchangeItems, newItem],
       }));
@@ -242,7 +270,7 @@ const Billing: React.FC = () => {
   };
 
   const updateExchangeItem = (itemId: string, updates: Partial<InvoiceItem>) => {
-    const updatedItems = exchangeGold.exchangeItems.map(item => {
+    const updatedItems = exchangeMaterial.exchangeItems.map(item => {
       if (item.id === itemId) {
         const updatedItem = { ...item, ...updates };
         
@@ -259,18 +287,21 @@ const Billing: React.FC = () => {
         if (updates.making_charge !== undefined && (isNaN(updates.making_charge) || updates.making_charge < 0)) {
           return item;
         }
+        if (updates.wastage_charge !== undefined && (isNaN(updates.wastage_charge) || updates.wastage_charge < 0)) {
+          return item;
+        }
         
-        updatedItem.total = (updatedItem.weight * updatedItem.rate + updatedItem.making_charge) * updatedItem.quantity;
+        updatedItem.total = (updatedItem.weight * updatedItem.rate + updatedItem.making_charge + (updatedItem.wastage_charge || 0)) * updatedItem.quantity;
         return updatedItem;
       }
       return item;
     });
 
-    setExchangeGold(prev => ({ ...prev, exchangeItems: updatedItems }));
+    setExchangeMaterial(prev => ({ ...prev, exchangeItems: updatedItems }));
   };
 
   const removeExchangeItem = (itemId: string) => {
-    setExchangeGold(prev => ({
+    setExchangeMaterial(prev => ({
       ...prev,
       exchangeItems: prev.exchangeItems.filter(item => item.id !== itemId),
     }));
@@ -338,14 +369,14 @@ const Billing: React.FC = () => {
       if (product) {
         // Check if product is active
         if (product.status !== 'active') {
-          error('Product is inactive');
+          error(t('billing.productInactive'));
           setBarcodeInput('');
           return;
         }
 
-        // Check stock availability for billing
-        if (activeTab === 'billing' && product.stock_quantity <= 0) {
-          error(`Product "${product.name}" is out of stock`);
+        // Check stock availability for billing and exchange (both deduct stock)
+        if ((activeTab === 'billing' || activeTab === 'exchange') && product.stock_quantity <= 0) {
+          error(t('billing.productOutOfStock', { product: product.name }));
           setBarcodeInput('');
           return;
         }
@@ -377,7 +408,7 @@ const Billing: React.FC = () => {
       }
     } catch (err) {
       console.error('Error processing barcode:', err);
-      error('Error processing barcode. Please try again.');
+      error(t('billing.barcodeProcessingError'));
       setBarcodeInput('');
     } finally {
       setIsScanning(false);
@@ -443,7 +474,7 @@ const Billing: React.FC = () => {
       }
     }
 
-    loading('Creating bill...');
+    loading(t('billing.creatingBill'));
     
     try {
       const db = Database.getInstance();
@@ -468,7 +499,7 @@ const Billing: React.FC = () => {
         updated_at: new Date().toISOString(),
       };
 
-      await db.createBill(billData);
+      const savedBill = await db.createBill(billData);
       
       // Deduct inventory for each item (now deducts stock)
       for (const item of currentBill.items || []) {
@@ -478,6 +509,19 @@ const Billing: React.FC = () => {
             stock_quantity: product.stock_quantity - item.quantity
           });
         }
+      }
+      
+      // Generate PDF automatically after saving
+      try {
+        const billWithNumber = {
+          ...savedBill,
+          bill_number: billNumber,
+          created_at: savedBill.created_at || new Date().toISOString(),
+        };
+        generateBillPDF(billWithNumber as Bill);
+      } catch (pdfError) {
+        console.error('Error generating PDF:', pdfError);
+        // Don't fail the save if PDF generation fails
       }
       
       // Reset the form
@@ -498,10 +542,10 @@ const Billing: React.FC = () => {
       // Reload recent bills
       await loadData();
       
-      success('Bill saved successfully and inventory updated!');
+      success(t('billing.billSavedSuccess'));
     } catch (err) {
       console.error('Error saving bill:', err);
-      error('Failed to save bill. Please try again.');
+      error(t('billing.billSaveError'));
     } finally {
       dismiss();
     }
@@ -518,7 +562,7 @@ const Billing: React.FC = () => {
       return;
     }
 
-    loading('Creating invoice...');
+    loading(t('billing.creatingInvoice'));
 
     try {
       const db = Database.getInstance();
@@ -543,7 +587,20 @@ const Billing: React.FC = () => {
         updated_at: new Date().toISOString(),
       };
 
-      await db.createInvoice(invoiceData);
+      const savedInvoice = await db.createInvoice(invoiceData);
+      
+      // Generate PDF automatically after saving
+      try {
+        const invoiceWithNumber = {
+          ...savedInvoice,
+          invoice_number: invoiceNumber,
+          created_at: savedInvoice.created_at || new Date().toISOString(),
+        };
+        generateInvoicePDF(invoiceWithNumber as Invoice);
+      } catch (pdfError) {
+        console.error('Error generating PDF:', pdfError);
+        // Don't fail the save if PDF generation fails
+      }
       
       // Reset the form
       setCurrentBill({
@@ -563,10 +620,149 @@ const Billing: React.FC = () => {
       // Reload data
       await loadData();
       
-      success('Invoice saved successfully!');
+      success(t('billing.invoiceSavedSuccess'));
     } catch (err) {
       console.error('Error saving invoice:', err);
-      error('Failed to save invoice. Please try again.');
+      error(t('billing.invoiceSaveError'));
+    } finally {
+      dismiss();
+    }
+  };
+
+  const saveExchangeBill = async () => {
+    if (!exchangeMaterial.exchangeItems.length) {
+      error(t('billing.addExchangeItemsError'));
+      return;
+    }
+
+    if (exchangeMaterial.oldMaterialWeight <= 0) {
+      error(t('billing.enterOldMaterialWeight'));
+      return;
+    }
+
+    if (!selectedCustomer && !currentBill.customer_name) {
+      error(t('billing.selectCustomerOrEnter'));
+      return;
+    }
+
+    // Check stock availability for exchange items
+    for (const item of exchangeMaterial.exchangeItems || []) {
+      const product = products.find(p => p.id === item.product_id);
+      if (product && product.stock_quantity < item.quantity) {
+        error(t('billing.insufficientStock', { product: item.product_name, available: product.stock_quantity, required: item.quantity }));
+        return;
+      }
+    }
+
+    loading(t('billing.creatingExchangeBill'));
+    
+    try {
+      const db = Database.getInstance();
+      const exchangeBillNumber = `EXCH-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+      
+      // Calculate totals for exchange items
+      const exchangeSubtotal = exchangeMaterial.exchangeItems.reduce((sum, item) => sum + item.total, 0);
+      const exchangeTaxAmount = (exchangeSubtotal * (currentBill.tax_percentage || 0)) / 100;
+      const exchangeDiscountAmount = currentBill.discount_amount || 0;
+      const exchangeTotalAmount = exchangeSubtotal - exchangeDiscountAmount + exchangeTaxAmount;
+      
+      const exchangeBillData = {
+        invoice_number: exchangeBillNumber, // API expects invoice_number but stores as bill_number
+        customer_id: selectedCustomer?.id,
+        customer_name: selectedCustomer?.name || currentBill.customer_name,
+        customer_phone: selectedCustomer?.phone || currentBill.customer_phone,
+        items: exchangeMaterial.exchangeItems,
+        subtotal: exchangeSubtotal,
+        tax_percentage: currentBill.tax_percentage || 0,
+        tax_amount: exchangeTaxAmount,
+        discount_percentage: currentBill.discount_percentage || 0,
+        discount_amount: exchangeDiscountAmount,
+        total_amount: exchangeTotalAmount,
+        payment_method: currentBill.payment_method || 'cash',
+        payment_status: exchangeMaterial.difference >= 0 ? 'pending' : 'paid', // If customer pays, pending; if receives, paid
+        amount_paid: exchangeMaterial.difference < 0 ? Math.abs(exchangeMaterial.difference) : 0,
+        // Exchange-specific fields (will be stored in notes or as JSON)
+        old_gold_weight: exchangeMaterial.oldMaterialWeight,
+        old_gold_purity: exchangeMaterial.oldMaterialPurity,
+        old_gold_rate: exchangeMaterial.oldMaterialRate,
+        old_gold_value: exchangeMaterial.oldMaterialValue,
+        exchange_rate: exchangeMaterial.exchangeRate,
+        exchange_difference: exchangeMaterial.difference,
+        material_type: exchangeMaterial.materialType, // Store material type
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const savedBill = await db.createBill(exchangeBillData);
+      
+      // Deduct inventory for exchange items (items given to customer) - same as Billing tab
+      for (const item of exchangeMaterial.exchangeItems || []) {
+        const product = products.find(p => p.id === item.product_id);
+        if (product) {
+          const newStockQuantity = product.stock_quantity - item.quantity;
+          if (newStockQuantity < 0) {
+            error(`Cannot deduct more stock than available for ${item.product_name}`);
+            return;
+          }
+          await db.updateProduct(item.product_id, {
+            stock_quantity: newStockQuantity
+          });
+        }
+      }
+      
+      // Generate PDF automatically after saving
+      try {
+        const billWithExchangeData = {
+          ...savedBill,
+          bill_number: exchangeBillNumber,
+          created_at: savedBill.created_at || new Date().toISOString(),
+          old_gold_weight: exchangeMaterial.oldMaterialWeight,
+          old_gold_purity: exchangeMaterial.oldMaterialPurity,
+          old_gold_rate: exchangeMaterial.oldMaterialRate,
+          old_gold_value: exchangeMaterial.oldMaterialValue,
+          exchange_rate: exchangeMaterial.exchangeRate,
+          exchange_difference: exchangeMaterial.difference,
+          material_type: exchangeMaterial.materialType,
+        };
+        generateBillPDF(billWithExchangeData as Bill);
+      } catch (pdfError) {
+        console.error('Error generating PDF:', pdfError);
+        // Don't fail the save if PDF generation fails
+      }
+      
+      // Reset the exchange form
+      setExchangeMaterial({
+        materialType: 'Gold',
+        oldMaterialWeight: 0,
+        oldMaterialPurity: '22K',
+        oldMaterialRate: 0,
+        oldMaterialValue: 0,
+        exchangeRate: 0,
+        exchangeValue: 0,
+        difference: 0,
+        exchangeItems: [],
+      });
+      setSelectedCustomer(null);
+      setCurrentBill({
+        items: [],
+        subtotal: 0,
+        tax_percentage: 3,
+        tax_amount: 0,
+        discount_percentage: 0,
+        discount_amount: 0,
+        total_amount: 0,
+        payment_method: 'cash',
+        payment_status: 'pending',
+        amount_paid: 0,
+      });
+      
+      // Reload data to refresh products with updated stock
+      await loadData();
+      
+      success(t('billing.exchangeBillSavedSuccess'));
+    } catch (err) {
+      console.error('Error saving exchange bill:', err);
+      error(t('billing.exchangeBillSaveError'));
     } finally {
       dismiss();
     }
@@ -595,10 +791,10 @@ const Billing: React.FC = () => {
         setCustomers([...customers, customerData]);
         onSelect(customerData);
         onClose();
-        success('Customer created successfully!');
+        success(t('billing.customerCreatedSuccess'));
       } catch (err) {
         console.error('Error creating customer:', err);
-        error('Failed to create customer. Please try again.');
+        error(t('billing.customerCreateError'));
       }
     };
 
@@ -692,6 +888,12 @@ const Billing: React.FC = () => {
   );
 
   const generateBillPDF = (bill: Bill) => {
+    try {
+      if (!bill) {
+        error('Invalid bill data');
+        return;
+      }
+
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -778,9 +980,13 @@ const Billing: React.FC = () => {
     doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
     yPosition += 20;
 
+    // Check if this is an exchange bill
+    const isExchange = bill.bill_number?.startsWith('EXCH-');
+
     // Customer information box (left side)
+    const customerBoxHeight = isExchange && (bill as any).old_gold_weight ? 60 : 45;
     doc.setFillColor(240, 240, 240);
-    doc.rect(margin, yPosition, 120, 45, 'F');
+    doc.rect(margin, yPosition, 120, customerBoxHeight, 'F');
     doc.setFillColor(0, 0, 0); // Black text
     doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
@@ -789,6 +995,21 @@ const Billing: React.FC = () => {
     doc.text(bill.customer_name || '', margin + 5, yPosition + 18);
     if (bill.customer_phone) {
       doc.text(`Phone: ${bill.customer_phone}`, margin + 5, yPosition + 28);
+    }
+    
+    // Add exchange details in customer box if applicable
+    if (isExchange && (bill as any).old_gold_weight) {
+      doc.setFont('helvetica', 'bold');
+      doc.text('Old Gold:', margin + 5, yPosition + 38);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${(bill as any).old_gold_weight}g (${(bill as any).old_gold_purity || '22K'})`, margin + 5, yPosition + 48);
+      if ((bill as any).exchange_difference !== undefined) {
+        const diff = (bill as any).exchange_difference;
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${diff >= 0 ? 'Pay' : 'Receive'}:`, margin + 5, yPosition + 56);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`₹${Math.abs(diff).toLocaleString()}`, margin + 5, yPosition + 66);
+      }
     }
 
     // Right side boxes (DATE, Time, NO)
@@ -804,7 +1025,8 @@ const Billing: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.text('DATE', rightBoxX + 5, yPosition + 8);
     doc.setFont('helvetica', 'normal');
-    doc.text(new Date(bill.created_at).toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
+    const billDate = bill.created_at ? new Date(bill.created_at) : new Date();
+    doc.text(billDate.toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
     
     // Time box
     doc.setFillColor(240, 240, 240);
@@ -813,7 +1035,7 @@ const Billing: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.text('Time', rightBoxX + 5, yPosition + 23);
     doc.setFont('helvetica', 'normal');
-    doc.text(new Date(bill.created_at).toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
+    doc.text(billDate.toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
     
     // NO box
     doc.setFillColor(240, 240, 240);
@@ -824,7 +1046,7 @@ const Billing: React.FC = () => {
     doc.setFont('helvetica', 'normal');
     doc.text(bill.bill_number || '', rightBoxX + 5, yPosition + 48);
 
-    yPosition += 60;
+    yPosition += (isExchange && (bill as any).old_gold_weight ? 75 : 60);
 
     // First dotted line
     doc.setLineWidth(0.5);
@@ -906,11 +1128,22 @@ const Billing: React.FC = () => {
     doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
 
     // Download
-    doc.save(`Bill-${bill.bill_number}.pdf`);
+      const billNumber = bill.bill_number || (bill as any).invoice_number || 'BILL-UNKNOWN';
+      doc.save(`Bill-${billNumber}.pdf`);
     success('Bill PDF downloaded successfully!');
+    } catch (err) {
+      console.error('Error generating bill PDF:', err);
+      error('Failed to generate bill PDF. Please try again.');
+    }
   };
 
   const generateInvoicePDF = (invoice: Invoice) => {
+    try {
+      if (!invoice) {
+        error('Invalid invoice data');
+        return;
+      }
+
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -1023,7 +1256,8 @@ const Billing: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.text('DATE', rightBoxX + 5, yPosition + 8);
     doc.setFont('helvetica', 'normal');
-    doc.text(new Date(invoice.created_at).toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
+    const invoiceDate = invoice.created_at ? new Date(invoice.created_at) : new Date();
+    doc.text(invoiceDate.toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
     
     // Time box
     doc.setFillColor(240, 240, 240);
@@ -1032,7 +1266,7 @@ const Billing: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.text('Time', rightBoxX + 5, yPosition + 23);
     doc.setFont('helvetica', 'normal');
-    doc.text(new Date(invoice.created_at).toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
+    doc.text(invoiceDate.toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
     
     // NO box
     doc.setFillColor(240, 240, 240);
@@ -1125,15 +1359,20 @@ const Billing: React.FC = () => {
     doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
 
     // Download
-    doc.save(`Invoice-${invoice.invoice_number}.pdf`);
+      const invoiceNumber = invoice.invoice_number || 'INV-UNKNOWN';
+      doc.save(`Invoice-${invoiceNumber}.pdf`);
     success('Invoice PDF downloaded successfully!');
+    } catch (err) {
+      console.error('Error generating invoice PDF:', err);
+      error('Failed to generate invoice PDF. Please try again.');
+    }
   };
 
   return (
     <>
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">{t('billing.title')}</h1>
           <p className="text-gray-600 mt-1">{t('billing.subtitle')}</p>
@@ -1161,11 +1400,11 @@ const Billing: React.FC = () => {
             </button>
           ) : (
             <button
-              onClick={() => {/* TODO: Implement exchange save */}}
+              onClick={saveExchangeBill}
               className="flex items-center space-x-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
             >
               <ShoppingCart className="h-4 w-4" />
-              <span>Process Exchange</span>
+              <span>Generate Exchange Bill</span>
             </button>
           )}
         </div>
@@ -1205,7 +1444,7 @@ const Billing: React.FC = () => {
             }`}
           >
             <ShoppingCart className="h-4 w-4" />
-            <span>Gold Exchange</span>
+            <span>{t('billing.goldExchange')}</span>
           </button>
         </div>
       </div>
@@ -1265,86 +1504,132 @@ const Billing: React.FC = () => {
             )}
           </div>
 
-          {/* Exchange Gold Section - Only show for exchange tab */}
+          {/* Exchange Material Section - Only show for exchange tab */}
           {activeTab === 'exchange' && (
             <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Old Gold Details</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('billing.oldMaterialDetails')}</h2>
               
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Weight (grams) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={exchangeGold.oldGoldWeight || ''}
-                    onChange={(e) => {
-                      const value = parseFloat(e.target.value);
-                      if (!isNaN(value) && value >= 0) {
-                        setExchangeGold(prev => ({ ...prev, oldGoldWeight: value }));
-                      }
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                    placeholder="Enter weight in grams"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Purity *
+                    {t('inventory.materialType')} *
                   </label>
                   <select
-                    value={exchangeGold.oldGoldPurity}
-                    onChange={(e) => setExchangeGold(prev => ({ ...prev, oldGoldPurity: e.target.value }))}
+                    value={exchangeMaterial.materialType}
+                    onChange={(e) => {
+                      const newMaterialType = e.target.value as 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Other';
+                      const defaultPurity = newMaterialType === 'Gold' ? '22K' : 
+                                           newMaterialType === 'Silver' ? '925' :
+                                           newMaterialType === 'Platinum' ? '950' :
+                                           newMaterialType === 'Diamond' ? 'G' : '22K';
+                      setExchangeMaterial(prev => ({ 
+                        ...prev, 
+                        materialType: newMaterialType,
+                        oldMaterialPurity: defaultPurity
+                      }));
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   >
-                    <option value="24K">24K</option>
-                    <option value="22K">22K</option>
-                    <option value="18K">18K</option>
-                    <option value="14K">14K</option>
+                    <option value="Gold">{t('inventory.gold')}</option>
+                    <option value="Silver">{t('inventory.silver')}</option>
+                    <option value="Platinum">{t('inventory.platinum')}</option>
+                    <option value="Diamond">{t('inventory.diamond')}</option>
+                    <option value="Other">{t('inventory.other')}</option>
                   </select>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Old Gold Rate (₹/g) *
+                    {t('billing.weightGrams')} *
                   </label>
                   <input
                     type="number"
-                    min="1"
-                    step="1"
-                    value={exchangeGold.oldGoldRate || ''}
+                    min="0.01"
+                    step="0.01"
+                    value={exchangeMaterial.oldMaterialWeight || ''}
                     onChange={(e) => {
-                      const value = parseInt(e.target.value);
-                      if (!isNaN(value) && value > 0) {
-                        setExchangeGold(prev => ({ ...prev, oldGoldRate: value }));
+                      const value = parseFloat(e.target.value);
+                      if (!isNaN(value) && value >= 0) {
+                        setExchangeMaterial(prev => ({ ...prev, oldMaterialWeight: value }));
                       }
                     }}
+                    onWheel={handleWheel}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                    placeholder="Rate per gram"
+                    placeholder={t('billing.enterWeightGrams')}
                   />
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Exchange Rate (₹/g) *
+                    {t('billing.purity')} *
                   </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={exchangeGold.exchangeRate || ''}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value);
-                      if (!isNaN(value) && value > 0) {
-                        setExchangeGold(prev => ({ ...prev, exchangeRate: value }));
-                      }
-                    }}
+                  <select
+                    value={exchangeMaterial.oldMaterialPurity}
+                    onChange={(e) => setExchangeMaterial(prev => ({ ...prev, oldMaterialPurity: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                    placeholder="Current rate per gram"
-                  />
+                  >
+                    {getPurityOptions(exchangeMaterial.materialType).map(purity => (
+                      <option key={purity} value={purity}>{purity}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('billing.oldMaterialRate')} *
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={exchangeMaterial.oldMaterialRate || ''}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? 0 : parseInt(e.target.value);
+                        if (!isNaN(value) && value >= 0) {
+                          setExchangeMaterial(prev => ({ ...prev, oldMaterialRate: value }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (e.target.value === '') {
+                          setExchangeMaterial(prev => ({ ...prev, oldMaterialRate: 0 }));
+                        }
+                      }}
+                      onWheel={handleWheel}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                      placeholder="0"
+                    />
+                    <span className="text-sm text-gray-600 font-medium">₹/g</span>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t('billing.exchangeRate')} *
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={exchangeMaterial.exchangeRate || ''}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? 0 : parseInt(e.target.value);
+                        if (!isNaN(value) && value >= 0) {
+                          setExchangeMaterial(prev => ({ ...prev, exchangeRate: value }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (e.target.value === '') {
+                          setExchangeMaterial(prev => ({ ...prev, exchangeRate: 0 }));
+                        }
+                      }}
+                      onWheel={handleWheel}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                      placeholder="0"
+                    />
+                    <span className="text-sm text-gray-600 font-medium">₹/g</span>
+                  </div>
                 </div>
               </div>
               
@@ -1352,19 +1637,19 @@ const Billing: React.FC = () => {
               <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
                 <div className="grid grid-cols-3 gap-4 text-center">
                   <div>
-                    <p className="text-sm text-gray-600">Old Gold Value</p>
-                    <p className="text-lg font-semibold text-gray-900">₹{exchangeGold.oldGoldValue.toLocaleString()}</p>
+                    <p className="text-sm text-gray-600">{t('billing.oldMaterialValue')}</p>
+                    <p className="text-lg font-semibold text-gray-900">₹{exchangeMaterial.oldMaterialValue.toLocaleString()}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600">Exchange Value</p>
-                    <p className="text-lg font-semibold text-gray-900">₹{exchangeGold.exchangeValue.toLocaleString()}</p>
+                    <p className="text-sm text-gray-600">{t('billing.exchangeValue')}</p>
+                    <p className="text-lg font-semibold text-gray-900">₹{exchangeMaterial.exchangeValue.toLocaleString()}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600">Difference</p>
+                    <p className="text-sm text-gray-600">{t('billing.difference')}</p>
                     <p className={`text-lg font-semibold ${
-                      exchangeGold.difference >= 0 ? 'text-green-600' : 'text-red-600'
+                      exchangeMaterial.difference >= 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {exchangeGold.difference >= 0 ? '+' : ''}₹{exchangeGold.difference.toLocaleString()}
+                      {exchangeMaterial.difference >= 0 ? '+' : ''}₹{exchangeMaterial.difference.toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -1393,7 +1678,7 @@ const Billing: React.FC = () => {
               <div className="flex items-center justify-between">
                 <p className="text-sm text-gray-600">{t('billing.scanInstructions')}</p>
                 <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
-                  Ctrl+B to focus
+                  {t('billing.ctrlBToFocus')}
                 </span>
               </div>
               <div className="relative">
@@ -1406,7 +1691,7 @@ const Billing: React.FC = () => {
                   onKeyDown={handleBarcodeKeyDown}
                   className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-lg font-mono"
                   disabled={isScanning}
-                  title="Scan barcode or type manually. Press Enter to process."
+                  title={t('billing.scanBarcodeOrType')}
                 />
                 <div className="absolute right-3 top-3">
                   {isScanning ? (
@@ -1458,19 +1743,14 @@ const Billing: React.FC = () => {
                         {recentlyScanned.has(product.id) && (
                           <div className="flex items-center space-x-1">
                             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            <span className="text-xs text-green-600 font-medium">Scanned</span>
+                            <span className="text-xs text-green-600 font-medium">{t('billing.scanned')}</span>
                           </div>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600">{product.weight}g • {product.purity}</p>
-                      <p className="text-sm font-medium text-amber-600">
-                        ₹{((product.weight * product.current_rate) + product.making_charge).toLocaleString()}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Rate: ₹{product.current_rate}/g • Making: ₹{product.making_charge}
-                      </p>
-                      {activeTab === 'billing' && (
-                        <p className="text-xs text-gray-500">Stock: {product.stock_quantity}</p>
+                      <p className="text-sm text-gray-600">{product.weight}g • {product.purity} • {product.material_type || 'Gold'}</p>
+                      <p className="text-sm text-gray-600">{product.category}</p>
+                        {(activeTab === 'billing' || activeTab === 'exchange') && (
+                        <p className="text-xs text-gray-500">{t('billing.stockLabel')}: {product.stock_quantity}</p>
                       )}
                       {product.barcode && (
                         <p className="text-xs text-gray-400 font-mono">Barcode: {product.barcode}</p>
@@ -1489,7 +1769,7 @@ const Billing: React.FC = () => {
             <h2 className="text-lg font-semibold text-gray-900">
               {activeTab === 'billing' ? t('billing.billItemsDeductStock') : 
                activeTab === 'invoice' ? t('billing.invoiceItemsQuoteEstimate') : 
-               'Exchange Items'}
+               t('billing.exchangeItems')}
             </h2>
             </div>
             
@@ -1523,6 +1803,12 @@ const Billing: React.FC = () => {
                     </th>
                     <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
                       <div className="flex items-center space-x-2">
+                        <Scale className="h-4 w-4" />
+                        <span>{t('billing.wastage')}</span>
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                      <div className="flex items-center space-x-2">
                         <Hash className="h-4 w-4" />
                         <span>{t('billing.qty')}</span>
                       </div>
@@ -1542,11 +1828,11 @@ const Billing: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {(activeTab === 'exchange' ? exchangeGold.exchangeItems : (currentBill.items || [])).map((item) => (
+                  {(activeTab === 'exchange' ? exchangeMaterial.exchangeItems : (currentBill.items || [])).map((item) => (
                     <tr key={item.id}>
                       <td className="px-6 py-4">
                         <p className="font-medium text-gray-900">{item.product_name}</p>
-                        {activeTab === 'billing' && (
+                        {(activeTab === 'billing' || activeTab === 'exchange') && (
                           <p className="text-xs text-gray-500">
                             {t('billing.stock')}: {products.find(p => p.id === item.product_id)?.stock_quantity || 0}
                           </p>
@@ -1554,59 +1840,82 @@ const Billing: React.FC = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
-                          <Scale className="h-4 w-4 text-gray-400" />
                           <input
                             type="number"
                             min="0.01"
                             step="0.01"
-                            value={item.weight}
+                            value={item.weight || ''}
                             onChange={(e) => {
-                              const value = parseFloat(e.target.value);
+                              const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
                               if (!isNaN(value) && value > 0) {
                                 if (activeTab === 'exchange') {
                                   updateExchangeItem(item.id, { weight: value });
                                 } else {
-                                updateBillItem(item.id, { weight: value });
+                                  updateBillItem(item.id, { weight: value });
                                 }
                               }
                             }}
-                            className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                            onBlur={(e) => {
+                              if (e.target.value === '' || parseFloat(e.target.value) <= 0) {
+                                const defaultValue = item.weight || 0.01;
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { weight: defaultValue });
+                                } else {
+                                  updateBillItem(item.id, { weight: defaultValue });
+                                }
+                              }
+                            }}
+                            onWheel={handleWheel}
+                            className="w-28 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            placeholder="0.00"
                           />
-                          <span className="text-sm text-gray-600">g</span>
+                          <span className="text-sm text-gray-600 font-medium">g</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
-                          <span className="text-gray-400 font-bold">₹</span>
+                         
                           <input
                             type="number"
                             min="1"
                             step="1"
-                            value={item.rate}
+                            value={item.rate || ''}
                             onChange={(e) => {
-                              const value = parseInt(e.target.value);
+                              const value = e.target.value === '' ? 0 : parseInt(e.target.value);
                               if (!isNaN(value) && value > 0) {
                                 if (activeTab === 'exchange') {
                                   updateExchangeItem(item.id, { rate: value });
                                 } else {
-                                updateBillItem(item.id, { rate: value });
+                                  updateBillItem(item.id, { rate: value });
                                 }
                               }
                             }}
-                            className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                            onBlur={(e) => {
+                              if (e.target.value === '' || parseInt(e.target.value) <= 0) {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { rate: 0 });
+                                } else {
+                                  updateBillItem(item.id, { rate: 0 });
+                                }
+                              }
+                            }}
+                            onWheel={handleWheel}
+                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            placeholder="0"
                           />
+                           <span className="text-gray-500 font-semibold">₹</span>
+                          <span className="text-sm text-gray-600 font-medium">/g</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
-                          <Wrench className="h-4 w-4 text-gray-400" />
                           <input
                             type="number"
                             min="0"
                             step="1"
-                            value={item.making_charge}
+                            value={item.making_charge || ''}
                             onChange={(e) => {
-                              const value = parseInt(e.target.value);
+                              const value = e.target.value === '' ? 0 : parseInt(e.target.value);
                               if (!isNaN(value) && value >= 0) {
                                 if (activeTab === 'exchange') {
                                   updateExchangeItem(item.id, { making_charge: value });
@@ -1615,29 +1924,85 @@ const Billing: React.FC = () => {
                                 }
                               }
                             }}
-                            className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                            onBlur={(e) => {
+                              if (e.target.value === '') {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { making_charge: 0 });
+                                } else {
+                                  updateBillItem(item.id, { making_charge: 0 });
+                                }
+                              }
+                            }}
+                            onWheel={handleWheel}
+                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            placeholder="0"
                           />
+                          <span className="text-gray-500 font-semibold">₹</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2">
-                          <Hash className="h-4 w-4 text-gray-400" />
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={item.wastage_charge || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? 0 : parseInt(e.target.value);
+                              if (!isNaN(value) && value >= 0) {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { wastage_charge: value });
+                                } else {
+                                  updateBillItem(item.id, { wastage_charge: value });
+                                }
+                              }
+                            }}
+                            onBlur={(e) => {
+                              if (e.target.value === '') {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { wastage_charge: 0 });
+                                } else {
+                                  updateBillItem(item.id, { wastage_charge: 0 });
+                                }
+                              }
+                            }}
+                            onWheel={handleWheel}
+                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            placeholder="0"
+                          />
+                          <span className="text-gray-500 font-semibold">₹</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2">
                           <input
                             type="number"
                             min="1"
                             step="1"
-                            value={item.quantity}
+                            value={item.quantity || ''}
                             onChange={(e) => {
-                              const value = parseInt(e.target.value);
+                              const value = e.target.value === '' ? 0 : parseInt(e.target.value);
                               if (!isNaN(value) && value > 0) {
                                 if (activeTab === 'exchange') {
                                   updateExchangeItem(item.id, { quantity: value });
                                 } else {
-                                updateBillItem(item.id, { quantity: value });
+                                  updateBillItem(item.id, { quantity: value });
                                 }
                               }
                             }}
-                            className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                            onBlur={(e) => {
+                              if (e.target.value === '' || parseInt(e.target.value) <= 0) {
+                                const defaultValue = item.quantity || 1;
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { quantity: defaultValue });
+                                } else {
+                                  updateBillItem(item.id, { quantity: defaultValue });
+                                }
+                              }
+                            }}
+                            onWheel={handleWheel}
+                            className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm text-center"
+                            placeholder="1"
                           />
                         </div>
                       </td>
@@ -1648,8 +2013,8 @@ const Billing: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
-                          <Settings className="h-4 w-4 text-gray-400" />
+                        <div className="flex items-center space-x-2 justify-center">
+                          {/* <Settings className="h-4 w-4 text-gray-400" /> */}
                           <button
                             onClick={() => activeTab === 'exchange' ? removeExchangeItem(item.id) : removeBillItem(item.id)}
                             className="text-red-600 hover:text-red-700"
@@ -1663,11 +2028,11 @@ const Billing: React.FC = () => {
                 </tbody>
               </table>
               
-              {!((activeTab === 'exchange' ? exchangeGold.exchangeItems : (currentBill.items || [])).length) && (
+              {!((activeTab === 'exchange' ? exchangeMaterial.exchangeItems : (currentBill.items || [])).length) && (
                 <div className="text-center py-8">
                   <ShoppingCart className="h-12 w-12 mx-auto text-gray-300 mb-4" />
                   <p className="text-gray-500">
-                    {activeTab === 'exchange' ? 'No exchange items added' : t('billing.noItemsAdded')}
+                    {activeTab === 'exchange' ? t('billing.noExchangeItems') : t('billing.noItemsAdded')}
                   </p>
                 </div>
               )}
@@ -1680,56 +2045,69 @@ const Billing: React.FC = () => {
           {/* Exchange Summary - Only show for exchange tab */}
           {activeTab === 'exchange' && (
             <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Exchange Summary</h2>
+              <div className="flex items-center space-x-2 mb-4">
+                <Calculator className="h-5 w-5 text-green-500" />
+                <h2 className="text-lg font-semibold text-gray-900">{t('billing.exchangeSummary')}</h2>
+              </div>
               
               <div className="space-y-4">
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <h3 className="font-medium text-gray-900 mb-2">Old Gold Details</h3>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Weight:</span>
-                      <span className="font-medium">{exchangeGold.oldGoldWeight}g ({exchangeGold.oldGoldPurity})</span>
+                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+                    <Scale className="h-4 w-4" />
+                    <span>{t('billing.oldMaterialDetails')}</span>
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">{t('inventory.materialType')}:</span>
+                      <span className="font-medium text-gray-900">{t(`inventory.${exchangeMaterial.materialType.toLowerCase()}`)}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Rate:</span>
-                      <span className="font-medium">₹{exchangeGold.oldGoldRate}/g</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">{t('billing.weightGrams')}:</span>
+                      <span className="font-medium text-gray-900">{exchangeMaterial.oldMaterialWeight}g ({exchangeMaterial.oldMaterialPurity})</span>
                     </div>
-                    <div className="flex justify-between border-t pt-2">
-                      <span className="text-gray-600 font-medium">Old Gold Value:</span>
-                      <span className="font-bold text-gray-900">₹{exchangeGold.oldGoldValue.toLocaleString()}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">{t('billing.oldMaterialRate')}:</span>
+                      <span className="font-medium text-gray-900">₹{exchangeMaterial.oldMaterialRate.toLocaleString()}/g</span>
+                    </div>
+                    <div className="flex justify-between items-center border-t border-gray-300 pt-3 mt-3">
+                      <span className="text-sm font-semibold text-gray-700">{t('billing.oldMaterialValue')}:</span>
+                      <span className="text-lg font-bold text-gray-900">₹{exchangeMaterial.oldMaterialValue.toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
                 
-                <div className="p-4 bg-green-50 rounded-lg">
-                  <h3 className="font-medium text-gray-900 mb-2">Exchange Items</h3>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Items Value:</span>
-                      <span className="font-medium">₹{exchangeGold.exchangeValue.toLocaleString()}</span>
+                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center space-x-2">
+                    <Package className="h-4 w-4" />
+                    <span>{t('billing.exchangeItems')}</span>
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">{t('billing.itemsValue')}:</span>
+                      <span className="font-medium text-gray-900">₹{exchangeMaterial.exchangeValue.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between border-t pt-2">
-                      <span className="text-gray-600 font-medium">Difference:</span>
-                      <span className={`font-bold ${
-                        exchangeGold.difference >= 0 ? 'text-green-600' : 'text-red-600'
+                    <div className="flex justify-between items-center border-t border-green-300 pt-3 mt-3">
+                      <span className="text-sm font-semibold text-gray-700">{t('billing.difference')}:</span>
+                      <span className={`text-lg font-bold ${
+                        exchangeMaterial.difference >= 0 ? 'text-red-600' : 'text-green-600'
                       }`}>
-                        {exchangeGold.difference >= 0 ? '+' : ''}₹{exchangeGold.difference.toLocaleString()}
+                        {exchangeMaterial.difference >= 0 ? '+' : ''}₹{exchangeMaterial.difference.toLocaleString()}
                       </span>
                     </div>
                   </div>
                 </div>
                 
-                <div className="pt-4 border-t">
-                  <div className="text-center">
+                <div className="pt-4 border-t border-gray-200">
+                  <div className="text-center p-4 bg-amber-50 rounded-lg border border-amber-200">
                     <p className="text-sm text-gray-600 mb-2">
-                      {exchangeGold.difference >= 0 
-                        ? 'Customer needs to pay additional amount' 
-                        : 'Customer will receive cash back'}
+                      {exchangeMaterial.difference >= 0 
+                        ? t('billing.customerPayAdditional') 
+                        : t('billing.customerReceiveCash')}
                     </p>
-                    <p className={`text-xl font-bold ${
-                      exchangeGold.difference >= 0 ? 'text-red-600' : 'text-green-600'
+                    <p className={`text-2xl font-bold ${
+                      exchangeMaterial.difference >= 0 ? 'text-red-600' : 'text-green-600'
                     }`}>
-                      {exchangeGold.difference >= 0 ? 'Pay' : 'Receive'} ₹{Math.abs(exchangeGold.difference).toLocaleString()}
+                      {exchangeMaterial.difference >= 0 ? t('billing.pay') : t('billing.receive')} ₹{Math.abs(exchangeMaterial.difference).toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -1748,38 +2126,45 @@ const Billing: React.FC = () => {
             </div>
             
             <div className="space-y-4">
-              <div className="flex justify-between">
-                <span className="text-gray-600">{t('billing.subtotal')}:</span>
-                <span className="font-medium">₹{(currentBill.subtotal || 0).toLocaleString()}</span>
+              <div className="flex justify-between items-center py-2">
+                <span className="text-sm font-medium text-gray-700">{t('billing.subtotal')}:</span>
+                <span className="text-base font-semibold text-gray-900">₹{(currentBill.subtotal || 0).toLocaleString()}</span>
               </div>
               
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">{t('billing.discount')}:</span>
+              <div className="flex justify-between items-center py-2 border-t border-gray-200">
+                <span className="text-sm font-medium text-gray-700">{t('billing.discount')}:</span>
                 <div className="flex items-center space-x-2">
                   <input
                     type="number"
                     min="0"
                     step="0.01"
-                    value={currentBill.discount_amount || 0}
+                    value={currentBill.discount_amount || ''}
                     onChange={(e) => {
-                      const value = parseFloat(e.target.value);
+                      const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
                       if (!isNaN(value) && value >= 0) {
                         setCurrentBill(prev => ({ ...prev, discount_amount: value }));
                       }
                     }}
-                    className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                    onBlur={(e) => {
+                      if (e.target.value === '') {
+                        setCurrentBill(prev => ({ ...prev, discount_amount: 0 }));
+                      }
+                    }}
+                    onWheel={handleWheel}
+                    className="w-28 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                    placeholder="0"
                   />
-                  <span className="text-sm">₹</span>
+                  <span className="text-sm text-gray-600 font-medium">₹</span>
                 </div>
               </div>
               
-              <div className="flex justify-between">
-                <span className="text-gray-600">{t('billing.discountAmount')}:</span>
-                <span className="font-medium text-green-600">-₹{Math.round(currentBill.discount_amount || 0).toLocaleString()}</span>
+              <div className="flex justify-between items-center py-2">
+                <span className="text-sm font-medium text-gray-700">{t('billing.discountAmount')}:</span>
+                <span className="text-base font-semibold text-green-600">-₹{Math.round(currentBill.discount_amount || 0).toLocaleString()}</span>
               </div>
               
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">{t('billing.gst')}:</span>
+              <div className="flex justify-between items-center py-2 border-t border-gray-200">
+                <span className="text-sm font-medium text-gray-700">{t('billing.gst')}:</span>
                 <div className="flex items-center space-x-2">
                   <input
                     type="number"
@@ -1793,33 +2178,35 @@ const Billing: React.FC = () => {
                         setCurrentBill(prev => ({ ...prev, tax_percentage: value }));
                       }
                     }}
-                    className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                    onWheel={handleWheel}
+                    className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm text-center"
+                    placeholder="3"
                   />
-                  <span className="text-sm">%</span>
+                  <span className="text-sm text-gray-600 font-medium">%</span>
                 </div>
               </div>
               
-              <div className="flex justify-between">
-                <span className="text-gray-600">{t('billing.taxAmount')}:</span>
-                <span className="font-medium">₹{(currentBill.tax_amount || 0).toLocaleString()}</span>
+              <div className="flex justify-between items-center py-2">
+                <span className="text-sm font-medium text-gray-700">{t('billing.taxAmount')}:</span>
+                <span className="text-base font-semibold text-gray-900">₹{(currentBill.tax_amount || 0).toLocaleString()}</span>
               </div>
               
-              <div className="border-t pt-4">
-                <div className="flex justify-between items-center">
+              <div className="border-t border-gray-300 pt-4 mt-2">
+                <div className="flex justify-between items-center py-2 bg-amber-50 rounded-lg px-3">
                   <span className="text-lg font-semibold text-gray-900">{t('billing.totalAmount')}:</span>
                   <span className="text-xl font-bold text-amber-600">₹{(currentBill.total_amount || 0).toLocaleString()}</span>
                 </div>
               </div>
               
-              <div className="space-y-3 pt-4 border-t">
+              <div className="space-y-4 pt-4 border-t border-gray-200">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     {t('billing.paymentMethod')}
                   </label>
                   <select
                     value={currentBill.payment_method || 'cash'}
                     onChange={(e) => setCurrentBill(prev => ({ ...prev, payment_method: e.target.value as any }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
                   >
                     <option value="cash">{t('common.cash')}</option>
                     <option value="card">{t('common.card')}</option>
@@ -1829,32 +2216,42 @@ const Billing: React.FC = () => {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     {t('billing.amountPaid')}
                   </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={currentBill.amount_paid || 0}
-                    onChange={(e) => {
-                      const value = parseFloat(e.target.value);
-                      if (!isNaN(value) && value >= 0) {
-                        setCurrentBill(prev => ({ ...prev, amount_paid: value }));
-                      }
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={currentBill.amount_paid || ''}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                        if (!isNaN(value) && value >= 0) {
+                          setCurrentBill(prev => ({ ...prev, amount_paid: value }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (e.target.value === '') {
+                          setCurrentBill(prev => ({ ...prev, amount_paid: 0 }));
+                        }
+                      }}
+                      onWheel={handleWheel}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                      placeholder="0"
+                    />
+                    <span className="text-sm text-gray-600 font-medium">₹</span>
+                  </div>
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     {t('billing.paymentStatus')}
                   </label>
                   <select
                     value={currentBill.payment_status || 'pending'}
                     onChange={(e) => setCurrentBill(prev => ({ ...prev, payment_status: e.target.value as any }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
                   >
                     <option value="pending">{t('common.pending')}</option>
                     <option value="partial">{t('common.partial')}</option>
@@ -1881,25 +2278,154 @@ const Billing: React.FC = () => {
                   className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                 >
                   <FileText className="h-5 w-5" />
-                  <span>{activeTab === 'invoice' ? 'Generate Invoice' : 'Generate Bill'}</span>
+                  <span>{activeTab === 'invoice' ? t('billing.generateInvoice') : t('billing.generateBill')}</span>
                 </button>
 
-                {/* View Invoice Button */}
+                {/* View Invoice/Bill Button */}
                 <button
                   onClick={() => {
-                    // TODO: Implement view invoice functionality
-                    if (activeTab === 'invoice' && recentInvoices.length > 0) {
-                      generateInvoicePDF(recentInvoices[0]);
-                    } else if (activeTab === 'billing' && recentBills.length > 0) {
-                      generateBillPDF(recentBills[0]);
+                    if (!currentBill.items || currentBill.items.length === 0) {
+                      error('Please add items before viewing the PDF');
+                      return;
+                    }
+
+                    if (!selectedCustomer && !currentBill.customer_name) {
+                      error('Please select or enter customer information');
+                      return;
+                    }
+
+                    // Generate temporary bill/invoice number if not saved yet
+                    const tempNumber = activeTab === 'invoice' 
+                      ? `INV-PREVIEW-${Date.now()}`
+                      : `BILL-PREVIEW-${Date.now()}`;
+
+                    const tempDocument: any = {
+                      id: 'preview',
+                      invoice_number: activeTab === 'invoice' ? tempNumber : undefined,
+                      bill_number: activeTab === 'billing' ? tempNumber : undefined,
+                      customer_name: selectedCustomer?.name || currentBill.customer_name || '',
+                      customer_phone: selectedCustomer?.phone || currentBill.customer_phone || '',
+                      items: currentBill.items || [],
+                      subtotal: currentBill.subtotal || 0,
+                      tax_percentage: currentBill.tax_percentage || 0,
+                      tax_amount: currentBill.tax_amount || 0,
+                      discount_percentage: currentBill.discount_percentage || 0,
+                      discount_amount: currentBill.discount_amount || 0,
+                      total_amount: currentBill.total_amount || 0,
+                      payment_method: currentBill.payment_method || 'cash',
+                      payment_status: currentBill.payment_status || 'pending',
+                      amount_paid: currentBill.amount_paid || 0,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    };
+
+                    if (activeTab === 'invoice') {
+                      generateInvoicePDF(tempDocument as Invoice);
                     } else {
-                      error('No recent documents to view');
+                      generateBillPDF(tempDocument as Bill);
                     }
                   }}
-                  className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+                  disabled={!currentBill.items || currentBill.items.length === 0}
+                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                    !currentBill.items || currentBill.items.length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                  }`}
                 >
                   <Eye className="h-5 w-5" />
-                  <span>View {activeTab === 'invoice' ? 'Invoice' : 'Bill'}</span>
+                  <span>{activeTab === 'invoice' ? t('billing.previewInvoicePDF') : t('billing.previewBillPDF')}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Actions Section - Only show for exchange tab */}
+          {activeTab === 'exchange' && (
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+              <div className="flex items-center space-x-2 mb-4">
+                <Settings className="h-5 w-5 text-green-500" />
+                <h2 className="text-lg font-semibold text-gray-900">Actions</h2>
+              </div>
+              
+              <div className="flex space-x-3">
+                {/* Generate Exchange Bill Button */}
+                <button
+                  onClick={saveExchangeBill}
+                  disabled={!exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0}
+                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                    !exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-green-500 text-white hover:bg-green-600'
+                  }`}
+                >
+                  <ShoppingCart className="h-5 w-5" />
+                  <span>{t('billing.generateExchangeBill')}</span>
+                </button>
+
+                {/* Preview Exchange Bill PDF Button */}
+                <button
+                  onClick={() => {
+                    if (!exchangeMaterial.exchangeItems.length) {
+                      error('Please add exchange items before viewing the PDF');
+                      return;
+                    }
+
+                    if (exchangeMaterial.oldMaterialWeight <= 0) {
+                      error(t('billing.enterOldMaterialWeight'));
+                      return;
+                    }
+
+                    if (!selectedCustomer && !currentBill.customer_name) {
+                      error('Please select or enter customer information');
+                      return;
+                    }
+
+                    // Calculate totals for exchange items
+                    const exchangeSubtotal = exchangeMaterial.exchangeItems.reduce((sum, item) => sum + item.total, 0);
+                    const exchangeTaxAmount = (exchangeSubtotal * (currentBill.tax_percentage || 0)) / 100;
+                    const exchangeDiscountAmount = currentBill.discount_amount || 0;
+                    const exchangeTotalAmount = exchangeSubtotal - exchangeDiscountAmount + exchangeTaxAmount;
+
+                    // Generate temporary exchange bill number
+                    const tempNumber = `EXCH-PREVIEW-${Date.now()}`;
+
+                    const tempDocument: any = {
+                      id: 'preview',
+                      bill_number: tempNumber,
+                      customer_name: selectedCustomer?.name || currentBill.customer_name || '',
+                      customer_phone: selectedCustomer?.phone || currentBill.customer_phone || '',
+                      items: exchangeMaterial.exchangeItems || [],
+                      subtotal: exchangeSubtotal,
+                      tax_percentage: currentBill.tax_percentage || 0,
+                      tax_amount: exchangeTaxAmount,
+                      discount_percentage: currentBill.discount_percentage || 0,
+                      discount_amount: exchangeDiscountAmount,
+                      total_amount: exchangeTotalAmount,
+                      payment_method: currentBill.payment_method || 'cash',
+                      payment_status: exchangeMaterial.difference >= 0 ? 'pending' : 'paid',
+                      amount_paid: exchangeMaterial.difference < 0 ? Math.abs(exchangeMaterial.difference) : 0,
+                      old_gold_weight: exchangeMaterial.oldMaterialWeight,
+                      old_gold_purity: exchangeMaterial.oldMaterialPurity,
+                      old_gold_rate: exchangeMaterial.oldMaterialRate,
+                      old_gold_value: exchangeMaterial.oldMaterialValue,
+                      exchange_rate: exchangeMaterial.exchangeRate,
+                      exchange_difference: exchangeMaterial.difference,
+                      material_type: exchangeMaterial.materialType,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    };
+
+                    generateBillPDF(tempDocument as Bill);
+                  }}
+                  disabled={!exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0}
+                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                    !exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                  }`}
+                >
+                  <Eye className="h-5 w-5" />
+                  <span>{t('billing.previewExchangeBillPDF')}</span>
                 </button>
               </div>
             </div>
@@ -1909,9 +2435,9 @@ const Billing: React.FC = () => {
           {activeTab === 'exchange' && (
             <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">All Exchange Bills</h2>
+                <h2 className="text-lg font-semibold text-gray-900">{t('billing.allExchangeBills')}</h2>
                 <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
-                  {exchangeBills.length} exchange bills
+                  {exchangeBills.length} {t('billing.exchangeBills')}
                 </span>
               </div>
               
@@ -1922,17 +2448,17 @@ const Billing: React.FC = () => {
                       <p className="font-medium text-gray-900">{bill.bill_number}</p>
                       <p className="text-sm text-gray-600">{bill.customer_name}</p>
                       <div className="flex items-center space-x-4 mt-1">
-                        <span className="text-xs text-green-600 font-medium">Exchange Bill</span>
+                        <span className="text-xs text-green-600 font-medium">{t('billing.exchangeBill')}</span>
                         {(bill as any).old_gold_weight && (
                           <span className="text-xs text-gray-500">
-                            Old Gold: {(bill as any).old_gold_weight}g ({(bill as any).old_gold_purity})
+                            {t('billing.oldGold')}: {(bill as any).old_gold_weight}g ({(bill as any).old_gold_purity})
                           </span>
                         )}
                         {(bill as any).exchange_difference !== undefined && (
                           <span className={`text-xs font-medium ${
                             (bill as any).exchange_difference >= 0 ? 'text-red-600' : 'text-green-600'
                           }`}>
-                            {(bill as any).exchange_difference >= 0 ? 'Pay' : 'Receive'} ₹{Math.abs((bill as any).exchange_difference).toLocaleString()}
+                            {(bill as any).exchange_difference >= 0 ? t('billing.pay') : t('billing.receive')} ₹{Math.abs((bill as any).exchange_difference).toLocaleString()}
                           </span>
                         )}
                       </div>
@@ -1951,7 +2477,7 @@ const Billing: React.FC = () => {
                       <button
                         onClick={() => generateBillPDF(bill)}
                         className="p-2 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors"
-                        title="Download Exchange Bill PDF"
+                        title={t('billing.downloadExchangeBillPDF')}
                       >
                         <Download className="h-4 w-4" />
                       </button>
@@ -1960,7 +2486,7 @@ const Billing: React.FC = () => {
                 ))}
                 {exchangeBills.length === 0 && (
                   <div className="text-center py-8">
-                    <p className="text-gray-500">No exchange bills found</p>
+                    <p className="text-gray-500">{t('billing.noExchangeBillsFound')}</p>
                   </div>
                 )}
               </div>

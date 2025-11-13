@@ -344,6 +344,27 @@ class Database {
       throw error;
     }
   }
+
+  // Settings
+  public async getSettings() {
+    try {
+      const response = await apiEndpoints.settings.getAll();
+      return response.data.data || {};
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+      return {};
+    }
+  }
+
+  public async updateSettings(settings: Record<string, string>) {
+    try {
+      const response = await apiEndpoints.settings.update(settings);
+      return response.data.data;
+    } catch (error) {
+      console.error('Error updating settings:', error);
+      throw error;
+    }
+  }
 }
 
 export default Database;

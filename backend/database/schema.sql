@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS products (
     name TEXT NOT NULL,
     category TEXT NOT NULL,
     product_category TEXT CHECK (product_category IN ('Men', 'Women', 'Kids')),
+    material_type TEXT CHECK (material_type IN ('Gold', 'Silver', 'Platinum', 'Diamond', 'Other')),
     sku TEXT UNIQUE NOT NULL,
     barcode TEXT UNIQUE,
     weight REAL NOT NULL,
@@ -156,6 +157,7 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_product_category ON products(product_category);
+CREATE INDEX IF NOT EXISTS idx_products_material_type ON products(material_type);
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);

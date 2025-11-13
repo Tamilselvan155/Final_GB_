@@ -28,7 +28,35 @@ export class DatabaseConnection {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     
+    // Run auto-migrations
+    this.runAutoMigrations();
+    
     console.log(`📦 Database connected: ${dbPath}`);
+  }
+
+  private runAutoMigrations(): void {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      // Check if material_type column exists
+      const tableInfo = this.db.prepare("PRAGMA table_info(products)").all() as Array<{ name: string; type: string }>;
+      const hasMaterialType = tableInfo.some(col => col.name === 'material_type');
+
+      if (!hasMaterialType) {
+        console.log('🔄 Adding material_type column to products table...');
+        this.db.exec('ALTER TABLE products ADD COLUMN material_type TEXT');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_products_material_type ON products(material_type)');
+        this.db.exec("UPDATE products SET material_type = 'Gold' WHERE material_type IS NULL");
+        console.log('✅ material_type column added successfully');
+      }
+    } catch (error: any) {
+      // Ignore if column already exists or other non-critical errors
+      if (!error.message?.includes('duplicate column')) {
+        console.warn('⚠️  Migration warning:', error.message);
+      }
+    }
   }
 
   public getDatabase(): DatabaseLib.Database {

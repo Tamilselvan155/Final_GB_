@@ -1,7 +1,11 @@
 import express from 'express';
 import { Database } from '../database/connection.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// All bill routes require authentication
+router.use(authenticate);
 
 // Get all bills
 router.get('/', (req, res) => {

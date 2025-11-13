@@ -1,7 +1,11 @@
 import express from 'express';
 import { Database } from '../database/connection.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// All inventory routes require authentication
+router.use(authenticate);
 
 // Get inventory overview
 router.get('/overview', (req, res) => {

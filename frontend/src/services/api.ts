@@ -9,10 +9,13 @@ const api = axios.create({
   },
 });
 
-// Request interceptor
+// Request interceptor - Add auth token to requests
 api.interceptors.request.use(
   (config) => {
-    // Add any auth tokens here if needed
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {
@@ -20,15 +23,19 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor
+// Response interceptor - Handle auth errors
 api.interceptors.response.use(
   (response) => {
     return response;
   },
   (error) => {
     if (error.response?.status === 401) {
-      // Handle unauthorized access
-      console.error('Unauthorized access');
+      // Clear token and redirect to login on unauthorized access
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }
@@ -36,6 +43,15 @@ api.interceptors.response.use(
 
 // API endpoints
 export const apiEndpoints = {
+  // Authentication
+  auth: {
+    login: (username: string, password: string) => 
+      api.post('/auth/login', { username, password }),
+    logout: () => api.post('/auth/logout'),
+    getCurrentUser: () => api.get('/auth/me'),
+    getUsers: () => api.get('/auth/users'),
+  },
+  
   // Products
   products: {
     getAll: () => api.get('/products'),
@@ -83,6 +99,13 @@ export const apiEndpoints = {
     getStats: (period?: string) => api.get('/dashboard/stats', { params: { period } }),
     getSalesChart: (period?: string) => api.get('/dashboard/sales-chart', { params: { period } }),
     getPaymentMethods: (period?: string) => api.get('/dashboard/payment-methods', { params: { period } }),
+  },
+  
+  // Settings
+  settings: {
+    getAll: () => api.get('/settings'),
+    getByKey: (key: string) => api.get(`/settings/${key}`),
+    update: (data: Record<string, string>) => api.put('/settings', data),
   },
 };
 
