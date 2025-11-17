@@ -24,5 +24,8 @@
   "workspaces": [
     "frontend",
     "backend"
-  ]
+  ],
+  "dependencies": {
+    "@react-oauth/google": "^0.12.2"
+  }
 }

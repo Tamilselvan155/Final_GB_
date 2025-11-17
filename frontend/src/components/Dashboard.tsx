@@ -539,221 +539,481 @@ const Dashboard: React.FC = () => {
   const generateInvoicePDF = (invoice: Invoice) => {
     try {
       if (!invoice) {
-        error(t('dashboard.invalidInvoiceData'));
+        error('Invalid invoice data');
         return;
       }
 
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 20;
-    let yPosition = 20;
+    let yPosition = 25;
 
-    doc.setFontSize(24);
+    // Add gold/brown border strips (exact template colors)
+    doc.setFillColor(218, 165, 32); // Gold color for borders
+    doc.rect(0, 0, 10, pageHeight, 'F'); // Left border
+    doc.rect(pageWidth - 10, 0, 10, pageHeight, 'F'); // Right border
+    doc.rect(0, 0, pageWidth, 10, 'F'); // Top border
+    doc.rect(0, pageHeight - 10, pageWidth, 10, 'F'); // Bottom border
+
+    // Header with Tamil text (exact template text)
+    doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.text(t('app.title'), pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 10;
+    doc.text('ஸ்ரீ காத்தாயி அம்மன் துணை', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 8;
+    doc.text('வர்ணமிகு நகைகளுக்கு', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 15;
 
-    doc.setFontSize(16);
+    // Left side business details (exact template layout)
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text('INVOICE', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 20;
+    
+    // B15 Logo placeholder (blue triangle)
+    doc.setFillColor(0, 0, 255); // Blue color
+    doc.rect(margin, yPosition, 8, 8, 'F');
+    doc.setFillColor(255, 255, 255); // White text
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.text('B15', margin + 2, yPosition + 6);
+    
+    // Reset font
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text('GSTIN: 33DIZPK7238G1ZP', margin, yPosition + 12);
+    doc.text('Mobile: 98432 95615', margin, yPosition + 20);
+    doc.text('Address: அகரம் சீகூர்', margin, yPosition + 28);
+    doc.text('(பார்டர்) - 621 108.', margin, yPosition + 36);
+    doc.text('பெரம்பலூர் Dt.', margin, yPosition + 44);
 
+    // Right side branding (exact template layout)
+    // VKV Logo placeholder (circular with yellow/red)
+    const logoX = pageWidth - margin - 25;
+    doc.setFillColor(255, 255, 0); // Yellow outer ring
+    doc.circle(logoX, yPosition + 10, 8, 'F');
+    doc.setFillColor(255, 0, 0); // Red inner circle
+    doc.circle(logoX, yPosition + 10, 6, 'F');
+    doc.setFillColor(255, 255, 255); // White text
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.text('VKV', logoX - 2, yPosition + 12);
+    
+    // Tamil words below logo
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.text('நம்பிக்கை', logoX - 4, yPosition + 18);
+    doc.text('தரம்', logoX - 2, yPosition + 24);
+    
+    // Company name (exact Tamil text)
+    doc.setFillColor(0, 0, 0); // Black text
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-      const invoiceNumber = invoice.invoice_number || 'INV-UNKNOWN';
-      doc.text(`Invoice Number: ${invoiceNumber}`, margin, yPosition);
-    yPosition += 8;
-      
-      const invoiceDate = invoice.created_at ? new Date(invoice.created_at) : new Date();
-      doc.text(`Date: ${invoiceDate.toLocaleDateString('en-IN')}`, margin, yPosition);
-    yPosition += 8;
-      doc.text(`Customer: ${invoice.customer_name || 'N/A'}`, margin, yPosition);
-    yPosition += 8;
+    doc.text('ஸ்ரீ வண்ணமயில்', pageWidth - margin, yPosition + 35, { align: 'right' });
+    doc.text('தங்கமாளிகை', pageWidth - margin, yPosition + 45, { align: 'right' });
+    
+    // Slogan in red
+    doc.setFillColor(255, 0, 0); // Red text
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
+
+    yPosition += 70;
+
+    // Invoice Details section header (light gray box)
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, yPosition, pageWidth - 2 * margin, 15, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
+    yPosition += 20;
+
+    // Customer information box (left side)
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, yPosition, 120, 45, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Customer Name & address', margin + 5, yPosition + 8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(invoice.customer_name || '', margin + 5, yPosition + 18);
     if (invoice.customer_phone) {
-      doc.text(`Phone: ${invoice.customer_phone}`, margin, yPosition);
-      yPosition += 8;
+      doc.text(`Phone: ${invoice.customer_phone}`, margin + 5, yPosition + 28);
     }
+
+    // Right side boxes (DATE, Time, NO)
+    const rightBoxX = pageWidth - margin - 80;
+    const boxWidth = 80;
+    const boxHeight = 12;
+    
+    // DATE box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('DATE', rightBoxX + 5, yPosition + 8);
+    doc.setFont('helvetica', 'normal');
+    const invoiceDate = invoice.created_at ? new Date(invoice.created_at) : new Date();
+    doc.text(invoiceDate.toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
+    
+    // Time box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition + 15, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFont('helvetica', 'bold');
+    doc.text('Time', rightBoxX + 5, yPosition + 23);
+    doc.setFont('helvetica', 'normal');
+    doc.text(invoiceDate.toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
+    
+    // NO box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition + 30, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFont('helvetica', 'bold');
+    doc.text('NO', rightBoxX + 5, yPosition + 38);
+    doc.setFont('helvetica', 'normal');
+    doc.text(invoice.invoice_number || '', rightBoxX + 5, yPosition + 48);
+
+    yPosition += 60;
+
+    // First dotted line
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
+    }
+    yPosition += 15;
+
+    // Items table header
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    const colPositions = [margin + 5, margin + 30, margin + 95, margin + 130, margin + 165, margin + 190];
+    
+    doc.text('Qty', colPositions[0], yPosition);
+    doc.text('Description', colPositions[1], yPosition);
+    doc.text('HSN/SAC', colPositions[2], yPosition);
+    doc.text('Rate', colPositions[3], yPosition);
+    doc.text('Gross Wt.', colPositions[4], yPosition);
+    doc.text('Taxable Amount', colPositions[5], yPosition);
     yPosition += 10;
 
-    doc.setFont('helvetica', 'bold');
-    doc.text(t('billing.item'), margin, yPosition);
-    doc.text(`${t('common.weight')} (g)`, margin + 60, yPosition);
-    doc.text(t('common.rate'), margin + 90, yPosition);
-    doc.text(t('billing.qty'), margin + 120, yPosition);
-    doc.text(t('common.total'), margin + 140, yPosition);
-    yPosition += 8;
-
-    doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 5;
-
+    // Items table data
     doc.setFont('helvetica', 'normal');
     if (invoice.items && Array.isArray(invoice.items)) {
       invoice.items.forEach((item: any) => {
-        doc.text(item.product_name || 'N/A', margin, yPosition);
-        doc.text(item.weight?.toString() || '0', margin + 60, yPosition);
-        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, margin + 90, yPosition);
-        doc.text(item.quantity?.toString() || '1', margin + 120, yPosition);
-        doc.text(`₹${item.total?.toLocaleString() || '0'}`, margin + 140, yPosition);
+        doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
+        doc.text(item.product_name || 'N/A', colPositions[1], yPosition);
+        doc.text('711319', colPositions[2], yPosition); // HSN code for gold jewelry
+        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, colPositions[3], yPosition);
+        doc.text(item.weight?.toString() || '0', colPositions[4], yPosition);
+        doc.text(`₹${item.total?.toLocaleString() || '0'}`, colPositions[5], yPosition);
         yPosition += 8;
       });
     }
 
     yPosition += 10;
-    doc.line(margin, yPosition, pageWidth - margin, yPosition);
-    yPosition += 10;
 
-    doc.setFont('helvetica', 'bold');
-      doc.text(`${t('common.subtotal')}: ₹${(invoice.subtotal || 0).toLocaleString()}`, margin + 100, yPosition);
-    yPosition += 8;
-    if (invoice.discount_amount && invoice.discount_amount > 0) {
-        doc.text(`${t('common.discount')} (${invoice.discount_percentage || 0}%): -₹${invoice.discount_amount.toLocaleString()}`, margin + 100, yPosition);
-      yPosition += 8;
+    // Second dotted line
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
     }
-    if (invoice.tax_amount && invoice.tax_amount > 0) {
-        doc.text(`${t('common.tax')} (${invoice.tax_percentage || 0}%): ₹${invoice.tax_amount.toLocaleString()}`, margin + 100, yPosition);
-      yPosition += 8;
-    }
-    doc.setFontSize(14);
-      doc.text(`${t('billing.totalAmount')}: ₹${(invoice.total_amount || 0).toLocaleString()}`, margin + 100, yPosition);
     yPosition += 15;
 
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`${t('billing.paymentMethod')}: ${invoice.payment_method?.toUpperCase() || 'CASH'}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`${t('billing.paymentStatus')}: ${invoice.payment_status?.toUpperCase() || 'PENDING'}`, margin, yPosition);
-    if (invoice.amount_paid && invoice.amount_paid > 0) {
+    // Summary section
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text(`Total Qty: ${invoice.items?.length || 0}`, margin + 5, yPosition);
+    doc.text(`Total Gross Weight: ${invoice.items?.reduce((sum: number, item: any) => sum + (item.weight || 0), 0).toFixed(3) || '0'}`, margin + 5, yPosition + 8);
+    doc.text(`Total Taxable Amount: ₹${invoice.subtotal?.toLocaleString() || '0'}`, margin + 5, yPosition + 16);
+    
+    if (invoice.discount_amount && invoice.discount_amount > 0) {
+      doc.text(`Less Special Discount Rs 50/-PER GMS: ₹${Math.round(invoice.discount_amount)}`, margin + 5, yPosition + 24);
       yPosition += 8;
-      doc.text(`${t('billing.amountPaid')}: ₹${invoice.amount_paid.toLocaleString()}`, margin, yPosition);
     }
+    
+    doc.text(`Net Amount: ₹${invoice.total_amount?.toLocaleString() || '0'}`, margin + 5, yPosition + 32);
 
-    yPosition = doc.internal.pageSize.getHeight() - 30;
-    doc.setFontSize(10);
-      doc.text(t('dashboard.thankYouForBusiness'), pageWidth / 2, yPosition, { align: 'center' });
+    // Peacock watermark (simplified version)
+    const watermarkY = pageHeight - 80;
+    doc.setFillColor(240, 240, 240, 0.3); // Semi-transparent gray
+    doc.setFontSize(60);
+    doc.setFont('helvetica', 'bold');
+    doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
 
+    // Signature lines (right side)
+    const signatureY = watermarkY + 20;
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
+    doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
+
+    // Footer messages (exact Tamil text)
+    const footerY = pageHeight - 25;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.text('உங்களது வளர்ச்சி!', margin + 5, footerY);
+    doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
+
+    // Download
+      const invoiceNumber = invoice.invoice_number || 'INV-UNKNOWN';
       doc.save(`Invoice-${invoiceNumber}.pdf`);
-      success(t('dashboard.invoicePDFDownloadSuccess'));
+    success('Invoice PDF downloaded successfully!');
     } catch (err) {
       console.error('Error generating invoice PDF:', err);
-      error(t('dashboard.invoicePDFDownloadError'));
+      error('Failed to generate invoice PDF. Please try again.');
     }
   };
 
   const generateBillPDF = (bill: Bill | any) => {
     try {
       if (!bill) {
-        error(t('dashboard.invalidBillData'));
+        error('Invalid bill data');
         return;
       }
 
-      const doc = new jsPDF();
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 20;
-      let yPosition = 20;
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    let yPosition = 25;
 
-      doc.setFontSize(24);
+    // Add gold/brown border strips (exact template colors)
+    doc.setFillColor(218, 165, 32); // Gold color for borders
+    doc.rect(0, 0, 10, pageHeight, 'F'); // Left border
+    doc.rect(pageWidth - 10, 0, 10, pageHeight, 'F'); // Right border
+    doc.rect(0, 0, pageWidth, 10, 'F'); // Top border
+    doc.rect(0, pageHeight - 10, pageWidth, 10, 'F'); // Bottom border
+
+    // Header with Tamil text (exact template text)
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ஸ்ரீ காத்தாயி அம்மன் துணை', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 8;
+    doc.text('வர்ணமிகு நகைகளுக்கு', pageWidth / 2, yPosition, { align: 'center' });
+    yPosition += 15;
+
+    // Left side business details (exact template layout)
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    
+    // B15 Logo placeholder (blue triangle)
+    doc.setFillColor(0, 0, 255); // Blue color
+    doc.rect(margin, yPosition, 8, 8, 'F');
+    doc.setFillColor(255, 255, 255); // White text
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.text('B15', margin + 2, yPosition + 6);
+    
+    // Reset font
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text('GSTIN: 33DIZPK7238G1ZP', margin, yPosition + 12);
+    doc.text('Mobile: 98432 95615', margin, yPosition + 20);
+    doc.text('Address: அகரம் சீகூர்', margin, yPosition + 28);
+    doc.text('(பார்டர்) - 621 108.', margin, yPosition + 36);
+    doc.text('பெரம்பலூர் Dt.', margin, yPosition + 44);
+
+    // Right side branding (exact template layout)
+    // VKV Logo placeholder (circular with yellow/red)
+    const logoX = pageWidth - margin - 25;
+    doc.setFillColor(255, 255, 0); // Yellow outer ring
+    doc.circle(logoX, yPosition + 10, 8, 'F');
+    doc.setFillColor(255, 0, 0); // Red inner circle
+    doc.circle(logoX, yPosition + 10, 6, 'F');
+    doc.setFillColor(255, 255, 255); // White text
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.text('VKV', logoX - 2, yPosition + 12);
+    
+    // Tamil words below logo
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.text('நம்பிக்கை', logoX - 4, yPosition + 18);
+    doc.text('தரம்', logoX - 2, yPosition + 24);
+    
+    // Company name (exact Tamil text)
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ஸ்ரீ வண்ணமயில்', pageWidth - margin, yPosition + 35, { align: 'right' });
+    doc.text('தங்கமாளிகை', pageWidth - margin, yPosition + 45, { align: 'right' });
+    
+    // Slogan in red
+    doc.setFillColor(255, 0, 0); // Red text
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
+
+    yPosition += 70;
+
+    // Invoice Details section header (light gray box)
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, yPosition, pageWidth - 2 * margin, 15, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
+    yPosition += 20;
+
+    // Check if this is an exchange bill
+    const isExchange = bill.bill_number?.startsWith('EXCH-');
+
+    // Customer information box (left side)
+    const customerBoxHeight = isExchange && (bill as any).old_gold_weight ? 60 : 45;
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, yPosition, 120, customerBoxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Customer Name & address', margin + 5, yPosition + 8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(bill.customer_name || '', margin + 5, yPosition + 18);
+    if (bill.customer_phone) {
+      doc.text(`Phone: ${bill.customer_phone}`, margin + 5, yPosition + 28);
+    }
+    
+    // Add exchange details in customer box if applicable
+    if (isExchange && (bill as any).old_gold_weight) {
       doc.setFont('helvetica', 'bold');
-      doc.text(t('app.title'), pageWidth / 2, yPosition, { align: 'center' });
-      yPosition += 10;
-
-      doc.setFontSize(16);
+      doc.text('Old Gold:', margin + 5, yPosition + 38);
       doc.setFont('helvetica', 'normal');
-      const isExchange = bill.bill_number?.startsWith('EXCH-');
-      doc.text(isExchange ? 'EXCHANGE BILL' : 'BILL', pageWidth / 2, yPosition, { align: 'center' });
-      yPosition += 20;
-
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      const billNumber = bill.bill_number || (bill as any).invoice_number || 'BILL-UNKNOWN';
-      doc.text(`${isExchange ? 'Exchange Bill' : 'Bill'} Number: ${billNumber}`, margin, yPosition);
-      yPosition += 8;
-      
-      const billDate = bill.created_at ? new Date(bill.created_at) : new Date();
-      doc.text(`Date: ${billDate.toLocaleDateString('en-IN')}`, margin, yPosition);
-      yPosition += 8;
-      doc.text(`Customer: ${bill.customer_name || 'N/A'}`, margin, yPosition);
-      yPosition += 8;
-      if (bill.customer_phone) {
-        doc.text(`Phone: ${bill.customer_phone}`, margin, yPosition);
-        yPosition += 8;
-      }
-      
-      // Add exchange details if applicable
-      if (isExchange && (bill as any).old_gold_weight) {
-        yPosition += 5;
+      doc.text(`${(bill as any).old_gold_weight}g (${(bill as any).old_gold_purity || '22K'})`, margin + 5, yPosition + 48);
+      if ((bill as any).exchange_difference !== undefined) {
+        const diff = (bill as any).exchange_difference;
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${diff >= 0 ? 'Pay' : 'Receive'}:`, margin + 5, yPosition + 56);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Old Gold: ${(bill as any).old_gold_weight}g (${(bill as any).old_gold_purity || '22K'})`, margin, yPosition);
-        yPosition += 8;
-        if ((bill as any).exchange_difference !== undefined) {
-          const diff = (bill as any).exchange_difference;
-          doc.text(`Difference: ${diff >= 0 ? 'Pay' : 'Receive'} ₹${Math.abs(diff).toLocaleString()}`, margin, yPosition);
-          yPosition += 8;
-        }
+        doc.text(`₹${Math.abs(diff).toLocaleString()}`, margin + 5, yPosition + 66);
       }
-      
-      yPosition += 10;
+    }
 
-      doc.setFont('helvetica', 'bold');
-      doc.text(t('billing.item'), margin, yPosition);
-      doc.text(`${t('common.weight')} (g)`, margin + 60, yPosition);
-      doc.text(t('common.rate'), margin + 90, yPosition);
-      doc.text(t('billing.qty'), margin + 120, yPosition);
-      doc.text(t('common.total'), margin + 140, yPosition);
+    // Right side boxes (DATE, Time, NO)
+    const rightBoxX = pageWidth - margin - 80;
+    const boxWidth = 80;
+    const boxHeight = 12;
+    
+    // DATE box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('DATE', rightBoxX + 5, yPosition + 8);
+    doc.setFont('helvetica', 'normal');
+    const billDate = bill.created_at ? new Date(bill.created_at) : new Date();
+    doc.text(billDate.toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
+    
+    // Time box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition + 15, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFont('helvetica', 'bold');
+    doc.text('Time', rightBoxX + 5, yPosition + 23);
+    doc.setFont('helvetica', 'normal');
+    doc.text(billDate.toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
+    
+    // NO box
+    doc.setFillColor(240, 240, 240);
+    doc.rect(rightBoxX, yPosition + 30, boxWidth, boxHeight, 'F');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.setFont('helvetica', 'bold');
+    doc.text('NO', rightBoxX + 5, yPosition + 38);
+    doc.setFont('helvetica', 'normal');
+    doc.text(bill.bill_number || '', rightBoxX + 5, yPosition + 48);
+
+    yPosition += (isExchange && (bill as any).old_gold_weight ? 75 : 60);
+
+    // First dotted line
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
+    }
+    yPosition += 15;
+
+    // Items table header
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    const colPositions = [margin + 5, margin + 30, margin + 95, margin + 130, margin + 165, margin + 190];
+    
+    doc.text('Qty', colPositions[0], yPosition);
+    doc.text('Description', colPositions[1], yPosition);
+    doc.text('HSN/SAC', colPositions[2], yPosition);
+    doc.text('Rate', colPositions[3], yPosition);
+    doc.text('Gross Wt.', colPositions[4], yPosition);
+    doc.text('Taxable Amount', colPositions[5], yPosition);
+    yPosition += 10;
+
+    // Items table data
+    doc.setFont('helvetica', 'normal');
+    if (bill.items && Array.isArray(bill.items)) {
+      bill.items.forEach((item: any) => {
+        doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
+        doc.text(item.product_name || 'N/A', colPositions[1], yPosition);
+        doc.text('711319', colPositions[2], yPosition); // HSN code for gold jewelry
+        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, colPositions[3], yPosition);
+        doc.text(item.weight?.toString() || '0', colPositions[4], yPosition);
+        doc.text(`₹${item.total?.toLocaleString() || '0'}`, colPositions[5], yPosition);
+        yPosition += 8;
+      });
+    }
+
+    yPosition += 10;
+
+    // Second dotted line
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
+    }
+    yPosition += 15;
+
+    // Summary section
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text(`Total Qty: ${bill.items?.length || 0}`, margin + 5, yPosition);
+    doc.text(`Total Gross Weight: ${bill.items?.reduce((sum: number, item: any) => sum + (item.weight || 0), 0).toFixed(3) || '0'}`, margin + 5, yPosition + 8);
+    doc.text(`Total Taxable Amount: ₹${bill.subtotal?.toLocaleString() || '0'}`, margin + 5, yPosition + 16);
+    
+    if (bill.discount_amount && bill.discount_amount > 0) {
+      doc.text(`Less Special Discount Rs 50/-PER GMS: ₹${Math.round(bill.discount_amount)}`, margin + 5, yPosition + 24);
       yPosition += 8;
+    }
+    
+    doc.text(`Net Amount: ₹${bill.total_amount?.toLocaleString() || '0'}`, margin + 5, yPosition + 32);
 
-      doc.line(margin, yPosition, pageWidth - margin, yPosition);
-      yPosition += 5;
+    // Peacock watermark (simplified version)
+    const watermarkY = pageHeight - 80;
+    doc.setFillColor(240, 240, 240, 0.3); // Semi-transparent gray
+    doc.setFontSize(60);
+    doc.setFont('helvetica', 'bold');
+    doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
 
-      doc.setFont('helvetica', 'normal');
-      if (bill.items && Array.isArray(bill.items)) {
-        bill.items.forEach((item: any) => {
-          doc.text(item.product_name || 'N/A', margin, yPosition);
-          doc.text(item.weight?.toString() || '0', margin + 60, yPosition);
-          doc.text(`₹${item.rate?.toLocaleString() || '0'}`, margin + 90, yPosition);
-          doc.text(item.quantity?.toString() || '1', margin + 120, yPosition);
-          doc.text(`₹${item.total?.toLocaleString() || '0'}`, margin + 140, yPosition);
-          yPosition += 8;
-        });
-      }
+    // Signature lines (right side)
+    const signatureY = watermarkY + 20;
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
+    doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
 
-      yPosition += 10;
-      doc.line(margin, yPosition, pageWidth - margin, yPosition);
-      yPosition += 10;
+    // Footer messages (exact Tamil text)
+    const footerY = pageHeight - 25;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setFillColor(0, 0, 0); // Black text
+    doc.text('உங்களது வளர்ச்சி!', margin + 5, footerY);
+    doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
 
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${t('common.subtotal')}: ₹${(bill.subtotal || 0).toLocaleString()}`, margin + 100, yPosition);
-      yPosition += 8;
-      if (bill.discount_amount && bill.discount_amount > 0) {
-        doc.text(`${t('common.discount')} (${bill.discount_percentage || 0}%): -₹${bill.discount_amount.toLocaleString()}`, margin + 100, yPosition);
-        yPosition += 8;
-      }
-      if (bill.tax_amount && bill.tax_amount > 0) {
-        doc.text(`${t('common.tax')} (${bill.tax_percentage || 0}%): ₹${bill.tax_amount.toLocaleString()}`, margin + 100, yPosition);
-        yPosition += 8;
-      }
-      doc.setFontSize(14);
-      doc.text(`${t('billing.totalAmount')}: ₹${(bill.total_amount || 0).toLocaleString()}`, margin + 100, yPosition);
-      yPosition += 15;
-
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${t('billing.paymentMethod')}: ${bill.payment_method?.toUpperCase() || 'CASH'}`, margin, yPosition);
-      yPosition += 8;
-      doc.text(`${t('billing.paymentStatus')}: ${bill.payment_status?.toUpperCase() || 'PENDING'}`, margin, yPosition);
-      if (bill.amount_paid && bill.amount_paid > 0) {
-        yPosition += 8;
-        doc.text(`${t('billing.amountPaid')}: ₹${bill.amount_paid.toLocaleString()}`, margin, yPosition);
-      }
-
-      yPosition = doc.internal.pageSize.getHeight() - 30;
-      doc.setFontSize(10);
-      doc.text(t('dashboard.thankYouForBusiness'), pageWidth / 2, yPosition, { align: 'center' });
-
+    // Download
+      const billNumber = bill.bill_number || (bill as any).invoice_number || 'BILL-UNKNOWN';
       doc.save(`Bill-${billNumber}.pdf`);
-      success(t('dashboard.billPDFDownloadSuccess'));
+    success('Bill PDF downloaded successfully!');
     } catch (err) {
       console.error('Error generating bill PDF:', err);
-      error(t('dashboard.billPDFDownloadError'));
+      error('Failed to generate bill PDF. Please try again.');
     }
   };
 

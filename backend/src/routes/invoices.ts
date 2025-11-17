@@ -120,11 +120,22 @@ router.post('/', (req, res) => {
       discount_amount = 0,
       total_amount,
       payment_method,
-      notes
+      notes,
+      created_at,
+      updated_at,
     } = req.body;
     
-    // Validate required fields
-    if (!customer_name || !items || !total_amount || !payment_method) {
+    console.log('Invoice creation request:', {
+      customer_name,
+      customer_phone,
+      subtotal,
+      total_amount,
+      payment_method,
+      itemsCount: Array.isArray(items) ? items.length : 0
+    });
+    
+    // Validate required fields (items are optional to support imports without line items)
+    if (!customer_name || !total_amount || !payment_method) {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields'
@@ -133,20 +144,43 @@ router.post('/', (req, res) => {
     
     // Generate invoice number
     const invoiceNumber = `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+
+    // Normalize created_at / updated_at so imports can preserve original dates
+    const nowIso = new Date().toISOString();
+    const createdAtIso = created_at && !isNaN(Date.parse(created_at))
+      ? new Date(created_at).toISOString()
+      : nowIso;
+    const updatedAtIso = updated_at && !isNaN(Date.parse(updated_at))
+      ? new Date(updated_at).toISOString()
+      : createdAtIso;
     
     const transaction = Database.getDatabase().transaction(() => {
-      // Insert invoice
+      // Insert invoice (explicitly setting created_at / updated_at to allow historical imports)
       const invoiceStmt = Database.prepare(`
-        INSERT INTO invoices (invoice_number, customer_id, customer_name, customer_phone, customer_address, 
-                            subtotal, tax_percentage, tax_amount, discount_percentage, discount_amount, 
-                            total_amount, payment_method, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO invoices (
+          invoice_number, customer_id, customer_name, customer_phone, customer_address, 
+          subtotal, tax_percentage, tax_amount, discount_percentage, discount_amount, 
+          total_amount, payment_method, notes, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       const invoiceResult = invoiceStmt.run(
-        invoiceNumber, customer_id || null, customer_name, customer_phone, customer_address,
-        subtotal, tax_percentage, tax_amount, discount_percentage, discount_amount,
-        total_amount, payment_method, notes
+        invoiceNumber,
+        customer_id || null,
+        customer_name,
+        customer_phone,
+        customer_address,
+        subtotal,
+        tax_percentage,
+        tax_amount,
+        discount_percentage,
+        discount_amount,
+        total_amount,
+        payment_method,
+        notes,
+        createdAtIso,
+        updatedAtIso
       );
       
       const invoiceId = invoiceResult.lastInsertRowid;
@@ -245,6 +279,44 @@ router.patch('/:id/payment', (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to update payment status'
+    });
+  }
+});
+
+// Delete invoice
+router.delete('/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const transaction = Database.getDatabase().transaction(() => {
+      // Delete invoice items first
+      const deleteItemsStmt = Database.prepare('DELETE FROM invoice_items WHERE invoice_id = ?');
+      deleteItemsStmt.run(id);
+      
+      // Delete invoice
+      const deleteInvoiceStmt = Database.prepare('DELETE FROM invoices WHERE id = ?');
+      const result = deleteInvoiceStmt.run(id);
+      
+      return result.changes;
+    });
+    
+    const changes = transaction();
+    
+    if (changes === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invoice not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Invoice deleted successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete invoice'
     });
   }
 });

@@ -128,7 +128,9 @@ router.post('/', (req, res) => {
       payment_method,
       payment_status = 'pending',
       amount_paid = 0,
-      notes
+      notes,
+      created_at,
+      updated_at,
     } = req.body;
     
     console.log('Bill creation request:', {
@@ -137,17 +139,27 @@ router.post('/', (req, res) => {
       customer_phone,
       subtotal,
       total_amount,
-      payment_method
+      payment_method,
+      itemsCount: Array.isArray(items) ? items.length : 0
     });
     
-    // Validate required fields
-    if (!invoice_number || !customer_name || !items || !total_amount || !payment_method) {
+    // Validate required fields (items are optional to support imports without line items)
+    if (!invoice_number || !customer_name || !total_amount || !payment_method) {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields'
       });
     }
     
+    // Normalize created_at / updated_at so imports can preserve original dates
+    const nowIso = new Date().toISOString();
+    const createdAtIso = created_at && !isNaN(Date.parse(created_at))
+      ? new Date(created_at).toISOString()
+      : nowIso;
+    const updatedAtIso = updated_at && !isNaN(Date.parse(updated_at))
+      ? new Date(updated_at).toISOString()
+      : createdAtIso;
+
     const transaction = Database.getDatabase().transaction(() => {
       // Insert bill
       const billStmt = Database.prepare(`
@@ -159,26 +171,25 @@ router.post('/', (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
-      const now = new Date().toISOString();
       const billResult = billStmt.run(
-        invoice_number,     // bill_number
+        invoice_number,      // bill_number
         customer_id || null, // customer_id
-        customer_name,      // customer_name
-        customer_phone,     // customer_phone
-        customer_address,   // customer_address
-        subtotal,           // subtotal
-        tax_percentage,     // tax_percentage
-        tax_amount,         // tax_amount
+        customer_name,       // customer_name
+        customer_phone,      // customer_phone
+        customer_address,    // customer_address
+        subtotal,            // subtotal
+        tax_percentage,      // tax_percentage
+        tax_amount,          // tax_amount
         discount_percentage, // discount_percentage
-        discount_amount,    // discount_amount
-        total_amount,       // total_amount
-        payment_method,     // payment_method
-        payment_status,     // payment_status
-        amount_paid,        // amount_paid
-        'bill',             // bill_type
-        notes,              // notes
-        now,                // created_at
-        now                 // updated_at
+        discount_amount,     // discount_amount
+        total_amount,        // total_amount
+        payment_method,      // payment_method
+        payment_status,      // payment_status
+        amount_paid,         // amount_paid
+        'bill',              // bill_type
+        notes,               // notes
+        createdAtIso,        // created_at
+        updatedAtIso         // updated_at
       );
       
       const billId = billResult.lastInsertRowid;
@@ -195,7 +206,7 @@ router.post('/', (req, res) => {
         for (const item of items) {
           itemStmt.run(
             billId, item.product_id, item.product_name, item.weight, item.rate,
-            item.making_charge, item.quantity, item.total, now
+            item.making_charge, item.quantity, item.total, createdAtIso
           );
         }
       }

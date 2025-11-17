@@ -14,9 +14,11 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useGoogleLogin } from '@react-oauth/google';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToast } from '../contexts/ToastContext';
 import Database from '../utils/database';
+import { apiEndpoints } from '../services/api';
 
 const Settings: React.FC = () => {
   const { t } = useLanguage();
@@ -42,11 +44,53 @@ const Settings: React.FC = () => {
   const [lastBackup, setLastBackup] = useState<string | null>(null);
   const [exportStats, setExportStats] = useState<{products: number, customers: number, invoices: number, bills: number} | null>(null);
   const [importStats, setImportStats] = useState<{imported: number, total: number, errors: number} | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  
+  // Google Drive state
+  const [isGoogleAuthenticated, setIsGoogleAuthenticated] = useState(false);
+  const [driveFileId, setDriveFileId] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
 
   const tabs = [
     { id: 'business', name: t('settings.businessInfo'), icon: Store },
     { id: 'data', name: t('settings.dataManagement'), icon: Download },
   ];
+
+  // Helper function to clear authentication
+  const clearAuth = () => {
+    localStorage.removeItem('google_access_token');
+    localStorage.removeItem('drive_file_id');
+    localStorage.removeItem('google_token_expiry');
+    setAccessToken(null);
+    setIsGoogleAuthenticated(false);
+    setDriveFileId(null);
+  };
+
+  // Google Drive Authentication
+  const loginWithGoogle = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      setAccessToken(tokenResponse.access_token);
+      setIsGoogleAuthenticated(true);
+      localStorage.setItem('google_access_token', tokenResponse.access_token);
+      
+      // Store token expiry time (tokens typically expire in 1 hour)
+      const expiryTime = Date.now() + (3600 * 1000); // 1 hour from now
+      localStorage.setItem('google_token_expiry', expiryTime.toString());
+      
+      success('Successfully connected to Google Drive!');
+    },
+    onError: (errorResponse) => {
+      console.error('Google OAuth error:', errorResponse);
+      const errorMessage = errorResponse?.error || '';
+      if (errorMessage.includes('popup_closed') || errorMessage.includes('cancelled')) {
+        error('Authentication cancelled. Please try again.');
+      } else {
+        error('Failed to authenticate with Google Drive. Please ensure http://localhost:5173 is added as Authorized JavaScript origin in Google Cloud Console.');
+      }
+    },
+    scope: 'https://www.googleapis.com/auth/drive.file',
+  });
 
   // Load business information from database
   useEffect(() => {
@@ -75,6 +119,29 @@ const Settings: React.FC = () => {
 
     loadBusinessInfo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Check for existing Google authentication on mount
+  useEffect(() => {
+    const storedToken = localStorage.getItem('google_access_token');
+    const storedFileId = localStorage.getItem('drive_file_id');
+    const expiryTime = localStorage.getItem('google_token_expiry');
+    
+    // Check if token is expired
+    if (expiryTime && Date.now() > parseInt(expiryTime)) {
+      // Token expired, clear it
+      clearAuth();
+      return;
+    }
+    
+    if (storedToken) {
+      setAccessToken(storedToken);
+      setIsGoogleAuthenticated(true);
+    }
+    
+    if (storedFileId) {
+      setDriveFileId(storedFileId);
+    }
   }, []);
 
   const handleSave = async () => {
@@ -124,8 +191,8 @@ const Settings: React.FC = () => {
         db.query('bills')
       ]);
 
-      // Progress: 60%
-      setExportProgress(60);
+      // Progress: 40%
+      setExportProgress(40);
 
       // Separate regular bills from exchange bills
       const regularBills = bills?.filter((bill: any) => {
@@ -138,761 +205,160 @@ const Settings: React.FC = () => {
         return billNumber.startsWith('EXCH-');
       }) || [];
 
+      // Progress: 50%
+      setExportProgress(50);
+
+      // Create workbook with separate sheets for each data type
+      const workbook = XLSX.utils.book_new();
+
+      // ========== SHEET 1: PRODUCTS ==========
+      if (products && products.length > 0) {
+        const productsData = products.map((product: any) => ({
+            'ID': product.id,
+          'Product Name': product.name,
+          'Category': product.category,
+          'SKU': product.sku,
+          'Barcode': product.barcode || '',
+          'Weight (g)': product.weight,
+          'Purity': product.purity,
+          'Material Type': product.material_type || '',
+          'Making Charge (₹)': product.making_charge,
+          'Current Rate (₹/g)': product.current_rate,
+          'Stock Quantity': product.stock_quantity,
+          'Min Stock Level': product.min_stock_level,
+          'Status': product.status,
+          'Created At': new Date(product.created_at).toLocaleString('en-IN'),
+          'Updated At': new Date(product.updated_at).toLocaleString('en-IN')
+        }));
+        const productsSheet = XLSX.utils.json_to_sheet(productsData);
+        XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products');
+      } else {
+        const productsSheet = XLSX.utils.json_to_sheet([{ 'Message': 'No products found' }]);
+        XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products');
+      }
+
+      // Progress: 60%
+      setExportProgress(60);
+
+      // ========== SHEET 2: CUSTOMERS ==========
+      if (customers && customers.length > 0) {
+        const customersData = customers.map((customer: any) => ({
+            'ID': customer.id,
+          'Name': customer.name,
+          'Customer Type': customer.customer_type || 'individual',
+          'Phone': customer.phone || '',
+          'Email': customer.email || '',
+          'Address': customer.address || '',
+          'City': customer.city || '',
+          'State': customer.state || '',
+          'Pincode': customer.pincode || '',
+          'GST Number': customer.gst_number || '',
+          'Status': customer.status || 'active',
+          'Created At': new Date(customer.created_at).toLocaleString('en-IN'),
+          'Updated At': new Date(customer.updated_at || customer.created_at).toLocaleString('en-IN')
+        }));
+        const customersSheet = XLSX.utils.json_to_sheet(customersData);
+        XLSX.utils.book_append_sheet(workbook, customersSheet, 'Customers');
+      } else {
+        const customersSheet = XLSX.utils.json_to_sheet([{ 'Message': 'No customers found' }]);
+        XLSX.utils.book_append_sheet(workbook, customersSheet, 'Customers');
+      }
+
       // Progress: 70%
       setExportProgress(70);
 
-      // Create a single consolidated sheet with all sections
-      // Using a wide column structure to accommodate all data types
-      const allData: any[] = [];
-
-      // ========== SECTION 1: PRODUCTS ==========
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': 'PRODUCTS',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-
-      // Products table headers
-      allData.push({
-        'Section': '',
-        'ID': 'ID',
-        'Name/Number': 'Product Name',
-        'Category/Type': 'Category',
-        'SKU/Phone': 'SKU',
-        'Barcode/Email': 'Barcode',
-        'Weight/Subtotal': 'Weight (g)',
-        'Purity/Tax %': 'Purity',
-        'Material/Tax Amt': 'Material Type',
-        'Making/Discount %': 'Making Charge (₹)',
-        'Rate/Discount Amt': 'Current Rate (₹/g)',
-        'Stock/Total': 'Stock Quantity',
-        'Min Level/Method': 'Min Stock Level',
-        'Status/Payment': 'Status',
-        'Amount Paid': '',
-        'Created At': 'Created At',
-        'Updated At': 'Updated At',
-        'Notes': ''
-      });
-
-      if (products && products.length > 0) {
-        products.forEach((product: any) => {
-          allData.push({
-            'Section': '',
-            'ID': product.id,
-            'Name/Number': product.name,
-            'Category/Type': product.category,
-            'SKU/Phone': product.sku,
-            'Barcode/Email': product.barcode || '',
-            'Weight/Subtotal': product.weight,
-            'Purity/Tax %': product.purity,
-            'Material/Tax Amt': product.material_type || '',
-            'Making/Discount %': product.making_charge,
-            'Rate/Discount Amt': product.current_rate,
-            'Stock/Total': product.stock_quantity,
-            'Min Level/Method': product.min_stock_level,
-            'Status/Payment': product.status,
-            'Amount Paid': '',
-            'Created At': new Date(product.created_at).toLocaleDateString('en-IN'),
-            'Updated At': new Date(product.updated_at).toLocaleDateString('en-IN'),
-            'Notes': ''
-          });
-        });
-      } else {
-        allData.push({
-          'Section': '',
-          'ID': 'No products found',
-          'Name/Number': '',
-          'Category/Type': '',
-          'SKU/Phone': '',
-          'Barcode/Email': '',
-          'Weight/Subtotal': '',
-          'Purity/Tax %': '',
-          'Material/Tax Amt': '',
-          'Making/Discount %': '',
-          'Rate/Discount Amt': '',
-          'Stock/Total': '',
-          'Min Level/Method': '',
-          'Status/Payment': '',
-          'Amount Paid': '',
-          'Created At': '',
-          'Updated At': '',
-          'Notes': ''
-        });
-      }
-
-      // Add spacing row
-      allData.push({
-        'Section': '',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-
-      // ========== SECTION 2: CUSTOMERS ==========
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': 'CUSTOMERS',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-
-      // Customers table headers
-      allData.push({
-        'Section': '',
-        'ID': 'ID',
-        'Name/Number': 'Name',
-        'Category/Type': 'Customer Type',
-        'SKU/Phone': 'Phone',
-        'Barcode/Email': 'Email',
-        'Weight/Subtotal': 'Address',
-        'Purity/Tax %': 'City',
-        'Material/Tax Amt': 'State',
-        'Making/Discount %': 'Pincode',
-        'Rate/Discount Amt': 'GST Number',
-        'Stock/Total': 'Status',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': 'Created At',
-        'Updated At': 'Updated At',
-        'Notes': ''
-      });
-
-      if (customers && customers.length > 0) {
-        customers.forEach((customer: any) => {
-          allData.push({
-            'Section': '',
-            'ID': customer.id,
-            'Name/Number': customer.name,
-            'Category/Type': customer.customer_type || 'individual',
-            'SKU/Phone': customer.phone || '',
-            'Barcode/Email': customer.email || '',
-            'Weight/Subtotal': customer.address || '',
-            'Purity/Tax %': customer.city || '',
-            'Material/Tax Amt': customer.state || '',
-            'Making/Discount %': customer.pincode || '',
-            'Rate/Discount Amt': customer.gst_number || '',
-            'Stock/Total': customer.status || 'active',
-            'Min Level/Method': '',
-            'Status/Payment': '',
-            'Amount Paid': '',
-            'Created At': new Date(customer.created_at).toLocaleDateString('en-IN'),
-            'Updated At': new Date(customer.updated_at || customer.created_at).toLocaleDateString('en-IN'),
-            'Notes': ''
-          });
-        });
-      } else {
-        allData.push({
-          'Section': '',
-          'ID': 'No customers found',
-          'Name/Number': '',
-          'Category/Type': '',
-          'SKU/Phone': '',
-          'Barcode/Email': '',
-          'Weight/Subtotal': '',
-          'Purity/Tax %': '',
-          'Material/Tax Amt': '',
-          'Making/Discount %': '',
-          'Rate/Discount Amt': '',
-          'Stock/Total': '',
-          'Min Level/Method': '',
-          'Status/Payment': '',
-          'Amount Paid': '',
-          'Created At': '',
-          'Updated At': '',
-          'Notes': ''
-        });
-      }
-
-      // Add spacing row
-      allData.push({
-        'Section': '',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-
-      // ========== SECTION 3: INVOICES ==========
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': 'INVOICES',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-
-      // Invoices table headers
-      allData.push({
-        'Section': '',
-        'ID': 'ID',
-        'Name/Number': 'Invoice Number',
-        'Category/Type': 'Customer Name',
-        'SKU/Phone': 'Customer Phone',
-        'Barcode/Email': '',
-        'Weight/Subtotal': 'Subtotal (₹)',
-        'Purity/Tax %': 'Tax %',
-        'Material/Tax Amt': 'Tax Amount (₹)',
-        'Making/Discount %': 'Discount %',
-        'Rate/Discount Amt': 'Discount Amount (₹)',
-        'Stock/Total': 'Total Amount (₹)',
-        'Min Level/Method': 'Payment Method',
-        'Status/Payment': 'Payment Status',
-        'Amount Paid': 'Amount Paid (₹)',
-        'Created At': 'Created At',
-        'Updated At': 'Updated At',
-        'Notes': ''
-      });
-
+      // ========== SHEET 3: INVOICES ==========
       if (invoices && invoices.length > 0) {
-        invoices.forEach((invoice: any) => {
-          allData.push({
-            'Section': '',
+        const invoicesData = invoices.map((invoice: any) => ({
             'ID': invoice.id,
-            'Name/Number': invoice.invoice_number,
-            'Category/Type': invoice.customer_name,
-            'SKU/Phone': invoice.customer_phone || '',
-            'Barcode/Email': '',
-            'Weight/Subtotal': invoice.subtotal,
-            'Purity/Tax %': invoice.tax_percentage,
-            'Material/Tax Amt': invoice.tax_amount,
-            'Making/Discount %': invoice.discount_percentage,
-            'Rate/Discount Amt': invoice.discount_amount,
-            'Stock/Total': invoice.total_amount,
-            'Min Level/Method': invoice.payment_method,
-            'Status/Payment': invoice.payment_status,
-            'Amount Paid': invoice.amount_paid,
-            'Created At': new Date(invoice.created_at).toLocaleDateString('en-IN'),
-            'Updated At': new Date(invoice.updated_at).toLocaleDateString('en-IN'),
-            'Notes': ''
-          });
-        });
+          'Invoice Number': invoice.invoice_number,
+          'Customer Name': invoice.customer_name,
+          'Customer Phone': invoice.customer_phone || '',
+          'Subtotal (₹)': invoice.subtotal,
+          'Tax %': invoice.tax_percentage,
+          'Tax Amount (₹)': invoice.tax_amount,
+          'Discount %': invoice.discount_percentage,
+          'Discount Amount (₹)': invoice.discount_amount,
+          'Total Amount (₹)': invoice.total_amount,
+          'Payment Method': invoice.payment_method,
+          'Payment Status': invoice.payment_status,
+          'Amount Paid (₹)': invoice.amount_paid,
+          'Created At': new Date(invoice.created_at).toLocaleString('en-IN'),
+          'Updated At': new Date(invoice.updated_at).toLocaleString('en-IN')
+        }));
+        const invoicesSheet = XLSX.utils.json_to_sheet(invoicesData);
+        XLSX.utils.book_append_sheet(workbook, invoicesSheet, 'Invoices');
       } else {
-        allData.push({
-          'Section': '',
-          'ID': 'No invoices found',
-          'Name/Number': '',
-          'Category/Type': '',
-          'SKU/Phone': '',
-          'Barcode/Email': '',
-          'Weight/Subtotal': '',
-          'Purity/Tax %': '',
-          'Material/Tax Amt': '',
-          'Making/Discount %': '',
-          'Rate/Discount Amt': '',
-          'Stock/Total': '',
-          'Min Level/Method': '',
-          'Status/Payment': '',
-          'Amount Paid': '',
-          'Created At': '',
-          'Updated At': '',
-          'Notes': ''
-        });
-      }
-
-      // Add spacing row
-      allData.push({
-        'Section': '',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-
-      // ========== SECTION 4: BILLS ==========
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': 'BILLS',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-
-      // Bills table headers
-      allData.push({
-        'Section': '',
-        'ID': 'ID',
-        'Name/Number': 'Bill Number',
-        'Category/Type': 'Customer Name',
-        'SKU/Phone': 'Customer Phone',
-        'Barcode/Email': '',
-        'Weight/Subtotal': 'Subtotal (₹)',
-        'Purity/Tax %': 'Tax %',
-        'Material/Tax Amt': 'Tax Amount (₹)',
-        'Making/Discount %': 'Discount %',
-        'Rate/Discount Amt': 'Discount Amount (₹)',
-        'Stock/Total': 'Total Amount (₹)',
-        'Min Level/Method': 'Payment Method',
-        'Status/Payment': 'Payment Status',
-        'Amount Paid': 'Amount Paid (₹)',
-        'Created At': 'Created At',
-        'Updated At': 'Updated At',
-        'Notes': ''
-      });
-
-      if (regularBills && regularBills.length > 0) {
-        regularBills.forEach((bill: any) => {
-          allData.push({
-            'Section': '',
-            'ID': bill.id,
-            'Name/Number': bill.bill_number || bill.invoice_number,
-            'Category/Type': bill.customer_name,
-            'SKU/Phone': bill.customer_phone || '',
-            'Barcode/Email': '',
-            'Weight/Subtotal': bill.subtotal,
-            'Purity/Tax %': bill.tax_percentage,
-            'Material/Tax Amt': bill.tax_amount,
-            'Making/Discount %': bill.discount_percentage,
-            'Rate/Discount Amt': bill.discount_amount,
-            'Stock/Total': bill.total_amount,
-            'Min Level/Method': bill.payment_method,
-            'Status/Payment': bill.payment_status,
-            'Amount Paid': bill.amount_paid,
-            'Created At': new Date(bill.created_at).toLocaleDateString('en-IN'),
-            'Updated At': new Date(bill.updated_at).toLocaleDateString('en-IN'),
-            'Notes': ''
-          });
-        });
-      } else {
-        allData.push({
-          'Section': '',
-          'ID': 'No bills found',
-          'Name/Number': '',
-          'Category/Type': '',
-          'SKU/Phone': '',
-          'Barcode/Email': '',
-          'Weight/Subtotal': '',
-          'Purity/Tax %': '',
-          'Material/Tax Amt': '',
-          'Making/Discount %': '',
-          'Rate/Discount Amt': '',
-          'Stock/Total': '',
-          'Min Level/Method': '',
-          'Status/Payment': '',
-          'Amount Paid': '',
-          'Created At': '',
-          'Updated At': '',
-          'Notes': ''
-        });
-      }
-
-      // Add spacing row
-      allData.push({
-        'Section': '',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-
-      // ========== SECTION 5: EXCHANGE BILLS ==========
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': 'EXCHANGE BILLS',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-      allData.push({
-        'Section': '════════════════════════════════════════════════════════════════════════════════',
-        'ID': '',
-        'Name/Number': '',
-        'Category/Type': '',
-        'SKU/Phone': '',
-        'Barcode/Email': '',
-        'Weight/Subtotal': '',
-        'Purity/Tax %': '',
-        'Material/Tax Amt': '',
-        'Making/Discount %': '',
-        'Rate/Discount Amt': '',
-        'Stock/Total': '',
-        'Min Level/Method': '',
-        'Status/Payment': '',
-        'Amount Paid': '',
-        'Created At': '',
-        'Updated At': '',
-        'Notes': ''
-      });
-
-      // Exchange Bills table headers
-      allData.push({
-        'Section': '',
-        'ID': 'ID',
-        'Name/Number': 'Exchange Bill Number',
-        'Category/Type': 'Customer Name',
-        'SKU/Phone': 'Customer Phone',
-        'Barcode/Email': 'Old Gold Weight & Purity',
-        'Weight/Subtotal': 'Old Gold Rate (₹/g)',
-        'Purity/Tax %': 'Old Gold Value (₹)',
-        'Material/Tax Amt': 'Exchange Rate (₹/g)',
-        'Making/Discount %': 'Exchange Difference (₹)',
-        'Rate/Discount Amt': 'Total Amount (₹)',
-        'Stock/Total': 'Payment Method',
-        'Min Level/Method': 'Payment Status',
-        'Status/Payment': 'Amount Paid (₹)',
-        'Amount Paid': '',
-        'Created At': 'Created At',
-        'Updated At': 'Updated At',
-        'Notes': ''
-      });
-
-      if (exchangeBills && exchangeBills.length > 0) {
-        exchangeBills.forEach((bill: any) => {
-          allData.push({
-            'Section': '',
-            'ID': bill.id,
-            'Name/Number': bill.bill_number || bill.invoice_number,
-            'Category/Type': bill.customer_name,
-            'SKU/Phone': bill.customer_phone || '',
-            'Barcode/Email': `${bill.old_gold_weight || 0}g (${bill.old_gold_purity || ''})`,
-            'Weight/Subtotal': bill.old_gold_rate || 0,
-            'Purity/Tax %': bill.old_gold_value || 0,
-            'Material/Tax Amt': bill.exchange_rate || 0,
-            'Making/Discount %': bill.exchange_difference || 0,
-            'Rate/Discount Amt': bill.total_amount,
-            'Stock/Total': bill.payment_method,
-            'Min Level/Method': bill.payment_status,
-            'Status/Payment': bill.amount_paid,
-            'Amount Paid': '',
-            'Created At': new Date(bill.created_at).toLocaleDateString('en-IN'),
-            'Updated At': new Date(bill.updated_at).toLocaleDateString('en-IN'),
-            'Notes': ''
-          });
-        });
-      } else {
-        allData.push({
-          'Section': '',
-          'ID': 'No exchange bills found',
-          'Name/Number': '',
-          'Category/Type': '',
-          'SKU/Phone': '',
-          'Barcode/Email': '',
-          'Weight/Subtotal': '',
-          'Purity/Tax %': '',
-          'Material/Tax Amt': '',
-          'Making/Discount %': '',
-          'Rate/Discount Amt': '',
-          'Stock/Total': '',
-          'Min Level/Method': '',
-          'Status/Payment': '',
-          'Amount Paid': '',
-          'Created At': '',
-          'Updated At': '',
-          'Notes': ''
-        });
+        const invoicesSheet = XLSX.utils.json_to_sheet([{ 'Message': 'No invoices found' }]);
+        XLSX.utils.book_append_sheet(workbook, invoicesSheet, 'Invoices');
       }
 
       // Progress: 80%
       setExportProgress(80);
 
-      // Create single consolidated sheet
-      const workbook = XLSX.utils.book_new();
-      const consolidatedSheet = XLSX.utils.json_to_sheet(allData);
-      XLSX.utils.book_append_sheet(workbook, consolidatedSheet, 'All Data');
-      
-        // Progress: 80%
-        setExportProgress(80);
+      // ========== SHEET 4: BILLS ==========
+      if (regularBills && regularBills.length > 0) {
+        const billsData = regularBills.map((bill: any) => ({
+            'ID': bill.id,
+          'Bill Number': bill.bill_number || bill.invoice_number,
+          'Customer Name': bill.customer_name,
+          'Customer Phone': bill.customer_phone || '',
+          'Subtotal (₹)': bill.subtotal,
+          'Tax %': bill.tax_percentage,
+          'Tax Amount (₹)': bill.tax_amount,
+          'Discount %': bill.discount_percentage,
+          'Discount Amount (₹)': bill.discount_amount,
+          'Total Amount (₹)': bill.total_amount,
+          'Payment Method': bill.payment_method,
+          'Payment Status': bill.payment_status,
+          'Amount Paid (₹)': bill.amount_paid,
+          'Created At': new Date(bill.created_at).toLocaleString('en-IN'),
+          'Updated At': new Date(bill.updated_at).toLocaleString('en-IN')
+        }));
+        const billsSheet = XLSX.utils.json_to_sheet(billsData);
+        XLSX.utils.book_append_sheet(workbook, billsSheet, 'Bills');
+      } else {
+        const billsSheet = XLSX.utils.json_to_sheet([{ 'Message': 'No bills found' }]);
+        XLSX.utils.book_append_sheet(workbook, billsSheet, 'Bills');
+      }
+
+      // Progress: 90%
+      setExportProgress(90);
+
+      // ========== SHEET 5: EXCHANGE BILLS ==========
+      if (exchangeBills && exchangeBills.length > 0) {
+        const exchangeBillsData = exchangeBills.map((bill: any) => ({
+            'ID': bill.id,
+          'Exchange Bill Number': bill.bill_number || bill.invoice_number,
+          'Customer Name': bill.customer_name,
+          'Customer Phone': bill.customer_phone || '',
+          'Old Gold Weight (g)': bill.old_gold_weight || 0,
+          'Old Gold Purity': bill.old_gold_purity || '',
+          'Old Gold Rate (₹/g)': bill.old_gold_rate || 0,
+          'Old Gold Value (₹)': bill.old_gold_value || 0,
+          'Exchange Rate (₹/g)': bill.exchange_rate || 0,
+          'Exchange Difference (₹)': bill.exchange_difference || 0,
+          'Subtotal (₹)': bill.subtotal,
+          'Tax %': bill.tax_percentage,
+          'Tax Amount (₹)': bill.tax_amount,
+          'Discount %': bill.discount_percentage,
+          'Discount Amount (₹)': bill.discount_amount,
+          'Total Amount (₹)': bill.total_amount,
+          'Payment Method': bill.payment_method,
+          'Payment Status': bill.payment_status,
+          'Amount Paid (₹)': bill.amount_paid,
+          'Created At': new Date(bill.created_at).toLocaleString('en-IN'),
+          'Updated At': new Date(bill.updated_at).toLocaleString('en-IN')
+        }));
+        const exchangeBillsSheet = XLSX.utils.json_to_sheet(exchangeBillsData);
+        XLSX.utils.book_append_sheet(workbook, exchangeBillsSheet, 'Exchange Bills');
+      } else {
+        const exchangeBillsSheet = XLSX.utils.json_to_sheet([{ 'Message': 'No exchange bills found' }]);
+        XLSX.utils.book_append_sheet(workbook, exchangeBillsSheet, 'Exchange Bills');
+      }
+
+      // Progress: 95%
+      setExportProgress(95);
         
       // Generate Excel file with proper options
       const excelBuffer = XLSX.write(workbook, { 
@@ -914,7 +380,9 @@ const Settings: React.FC = () => {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
         
-      success(`All data exported to Excel successfully! ${allData.length} rows exported across 5 sections.`);
+      const totalRecords = (products?.length || 0) + (customers?.length || 0) + 
+                          (invoices?.length || 0) + regularBills.length + exchangeBills.length;
+      success(`All data exported successfully! ${totalRecords} records across 5 sheets.`);
       
       // Progress: 100%
       setExportProgress(100);
@@ -925,7 +393,7 @@ const Settings: React.FC = () => {
         products: products?.length || 0,
         customers: customers?.length || 0,
         invoices: invoices?.length || 0,
-        bills: (regularBills.length || 0) + (exchangeBills.length || 0)
+        bills: regularBills.length + exchangeBills.length
       });
       
     } catch (err) {
@@ -1222,7 +690,7 @@ const Settings: React.FC = () => {
 
 
   // Enhanced Data Import Functions
-  const handleFileImport = (type: 'products' | 'customers' | 'all') => {
+  const handleFileImport = (type: 'products' | 'customers' | 'invoices' | 'bills' | 'exchangeBills' | 'all') => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.xlsx,.xls';
@@ -1235,7 +703,7 @@ const Settings: React.FC = () => {
     input.click();
   };
 
-  const importData = async (file: File, type: 'products' | 'customers' | 'all') => {
+  const importData = async (file: File, type: 'products' | 'customers' | 'invoices' | 'bills' | 'exchangeBills' | 'all') => {
     setIsImporting(true);
     setImportProgress(0);
     
@@ -1248,9 +716,15 @@ const Settings: React.FC = () => {
         const arrayBuffer = await file.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
         
-        // Convert Excel sheets to JSON
+        // Convert Excel sheets to JSON - match exact export structure
         const sheetNames = workbook.SheetNames;
-        importData = {};
+        importData = {
+          products: [],
+          customers: [],
+          invoices: [],
+          bills: [],
+          exchangeBills: []
+        };
         
         sheetNames.forEach(sheetName => {
           const worksheet = workbook.Sheets[sheetName];
@@ -1260,32 +734,45 @@ const Settings: React.FC = () => {
           blankrows: false
         });
         
-        // Skip empty sheets
+          // Skip empty sheets or sheets with only headers
         if (jsonData.length <= 1) return;
         
-        // Convert array of arrays to array of objects
+          // Convert array of arrays to array of objects using exact column headers from export
         const headers = jsonData[0] as string[];
         const rows = jsonData.slice(1) as any[][];
         const objects = rows.map((row: any[]) => {
           const obj: any = {};
           headers.forEach((header, index) => {
-            if (header && row[index] !== undefined) {
+              if (header && row[index] !== undefined && row[index] !== '') {
               obj[header] = row[index];
             }
           });
           return obj;
-        });
+          }).filter(obj => Object.keys(obj).length > 0); // Remove empty objects
           
-          if (sheetName.toLowerCase().includes('product')) {
+          // Match exact sheet names from export structure
+          if (sheetName === 'Products') {
           importData.products = objects;
-          } else if (sheetName.toLowerCase().includes('customer')) {
+          } else if (sheetName === 'Customers') {
           importData.customers = objects;
-          } else if (sheetName.toLowerCase().includes('invoice')) {
+          } else if (sheetName === 'Invoices') {
           importData.invoices = objects;
-          } else if (sheetName.toLowerCase().includes('bill')) {
+          } else if (sheetName === 'Bills') {
           importData.bills = objects;
-          } else if (sheetName.toLowerCase().includes('business')) {
-          importData.business_info = objects[0];
+          } else if (sheetName === 'Exchange Bills') {
+            importData.exchangeBills = objects;
+          }
+          // Fallback for case-insensitive matching (for backward compatibility)
+          else if (sheetName.toLowerCase() === 'products') {
+            importData.products = objects;
+          } else if (sheetName.toLowerCase() === 'customers') {
+            importData.customers = objects;
+          } else if (sheetName.toLowerCase() === 'invoices') {
+            importData.invoices = objects;
+          } else if (sheetName.toLowerCase() === 'bills') {
+            importData.bills = objects;
+          } else if (sheetName.toLowerCase() === 'exchange bills') {
+            importData.exchangeBills = objects;
           }
         });
         
@@ -1328,12 +815,126 @@ const Settings: React.FC = () => {
             }
           }
         }
+
+        // Build customer lookup map (name + phone → id) for linking invoices/bills
+        let allCustomersForLookup: any[] = [];
+        try {
+          allCustomersForLookup = await db.getCustomers();
+        } catch (err) {
+          console.error('Error fetching customers for invoice/bill import:', err);
+        }
+        const customerLookup = new Map<string, any>();
+        if (Array.isArray(allCustomersForLookup)) {
+          for (const c of allCustomersForLookup) {
+            const nameKey = (c.name || '').toString().toLowerCase().trim();
+            const phoneKey = (c.phone || '').toString().replace(/\s+/g, '');
+            if (nameKey || phoneKey) {
+              customerLookup.set(`${nameKey}__${phoneKey}`, c);
+            }
+          }
+        }
         
         if (cleanedData.invoices && cleanedData.invoices.length > 0) {
           setImportProgress(90);
           for (let i = 0; i < cleanedData.invoices.length; i++) {
             try {
-              await db.insert('invoices', cleanedData.invoices[i]);
+              // Remove fields that backend doesn't expect
+              const { id, ...invoiceData } = cleanedData.invoices[i];
+
+              // Ensure numeric fields
+              invoiceData.subtotal = parseFloat(invoiceData.subtotal) || 0;
+              invoiceData.tax_percentage = parseFloat(invoiceData.tax_percentage) || 0;
+              invoiceData.tax_amount = parseFloat(invoiceData.tax_amount) || 0;
+              invoiceData.discount_percentage = parseFloat(invoiceData.discount_percentage) || 0;
+              invoiceData.discount_amount = parseFloat(invoiceData.discount_amount) || 0;
+              invoiceData.total_amount = parseFloat(invoiceData.total_amount) || 0;
+              invoiceData.amount_paid = parseFloat(invoiceData.amount_paid) || 0;
+
+              // Customer name / phone
+              if (!invoiceData.customer_name || invoiceData.customer_name.trim() === '') {
+                invoiceData.customer_name = 'Unknown Customer';
+              }
+              if (!invoiceData.customer_phone) {
+                invoiceData.customer_phone = '';
+              } else {
+                invoiceData.customer_phone = invoiceData.customer_phone.toString().trim();
+              }
+
+              // Payment method default
+              if (!invoiceData.payment_method) {
+                invoiceData.payment_method = 'cash';
+              }
+
+              // Compute total_amount if needed
+              if (!invoiceData.total_amount || invoiceData.total_amount <= 0) {
+                const computedTotal =
+                  (invoiceData.subtotal || 0) +
+                  (invoiceData.tax_amount || 0) -
+                  (invoiceData.discount_amount || 0);
+                if (computedTotal > 0) {
+                  invoiceData.total_amount = computedTotal;
+                }
+              }
+
+              // Resolve customer_id via lookup (name + phone)
+              const nameKey = invoiceData.customer_name.toString().toLowerCase().trim();
+              const phoneKey = invoiceData.customer_phone.toString().replace(/\s+/g, '');
+              const lookupKey = `${nameKey}__${phoneKey}`;
+              let customerMatch = customerLookup.get(lookupKey);
+
+              // If no exact match, try by name only
+              if (!customerMatch && nameKey) {
+                for (const c of customerLookup.values()) {
+                  const cNameKey = (c.name || '').toString().toLowerCase().trim();
+                  if (cNameKey === nameKey) {
+                    customerMatch = c;
+                    break;
+                  }
+                }
+              }
+
+              // If still no match, create a new customer on-the-fly
+              if (!customerMatch) {
+                try {
+                  const newCustomer = await db.insert('customers', {
+                    name: invoiceData.customer_name || 'Unknown Customer',
+                    phone: invoiceData.customer_phone || `PHONE-${generateId()}`,
+                    email: '',
+                    address: invoiceData.customer_address || '',
+                    customer_type: 'individual',
+                    status: 'active'
+                  });
+                  customerMatch = newCustomer;
+                  const newNameKey = (newCustomer.name || '').toString().toLowerCase().trim();
+                  const newPhoneKey = (newCustomer.phone || '').toString().replace(/\s+/g, '');
+                  customerLookup.set(`${newNameKey}__${newPhoneKey}`, newCustomer);
+                } catch (createCustomerErr) {
+                  console.error('Failed to create customer for imported invoice:', invoiceData, createCustomerErr);
+                }
+              }
+
+              if (customerMatch && customerMatch.id != null) {
+                invoiceData.customer_id = customerMatch.id;
+                if (!invoiceData.customer_phone) {
+                  invoiceData.customer_phone = customerMatch.phone || `PHONE-${generateId()}`;
+                }
+              }
+
+              // Final validation (match backend /api/invoices expectations)
+              if (
+                !invoiceData.customer_id ||
+                !invoiceData.customer_name ||
+                !invoiceData.total_amount ||
+                !invoiceData.payment_method
+              ) {
+                console.warn(
+                  `Skipping invoice ${i + 1}: missing required fields for /api/invoices`,
+                  invoiceData
+                );
+                continue;
+              }
+
+              await db.insert('invoices', invoiceData);
             importedCount++;
               setImportProgress(90 + (i / cleanedData.invoices.length) * 5);
             } catch (err) {
@@ -1345,10 +946,82 @@ const Settings: React.FC = () => {
         if (cleanedData.bills && cleanedData.bills.length > 0) {
           for (let i = 0; i < cleanedData.bills.length; i++) {
             try {
-              await db.insert('bills', cleanedData.bills[i]);
+              // Remove fields that backend doesn't expect
+              const { id, ...billData } = cleanedData.bills[i];
+
+              // Ensure numeric fields
+              billData.subtotal = parseFloat(billData.subtotal) || 0;
+              billData.tax_percentage = parseFloat(billData.tax_percentage) || 0;
+              billData.tax_amount = parseFloat(billData.tax_amount) || 0;
+              billData.discount_percentage = parseFloat(billData.discount_percentage) || 0;
+              billData.discount_amount = parseFloat(billData.discount_amount) || 0;
+              billData.total_amount = parseFloat(billData.total_amount) || 0;
+              billData.amount_paid = parseFloat(billData.amount_paid) || 0;
+
+              // Customer name / phone
+              if (!billData.customer_name || billData.customer_name.trim() === '') {
+                billData.customer_name = 'Unknown Customer';
+              }
+              if (!billData.customer_phone) {
+                billData.customer_phone = '';
+              }
+
+              // Payment method default
+              if (!billData.payment_method) {
+                billData.payment_method = 'cash';
+              }
+
+              // Compute total_amount if needed
+              if (!billData.total_amount || billData.total_amount <= 0) {
+                const computedTotal =
+                  (billData.subtotal || 0) +
+                  (billData.tax_amount || 0) -
+                  (billData.discount_amount || 0);
+                if (computedTotal > 0) {
+                  billData.total_amount = computedTotal;
+                }
+              }
+
+              // Build payload matching backend /api/bills
+              const billPayload: any = {
+                invoice_number: billData.bill_number || billData['Bill Number'] || generateBillNumber(),
+                customer_id: billData.customer_id || null,
+                customer_name: billData.customer_name,
+                customer_phone: billData.customer_phone || '',
+                customer_address: billData.customer_address || '',
+                items: Array.isArray(billData.items) ? billData.items : [],
+                subtotal: billData.subtotal || 0,
+                tax_percentage: billData.tax_percentage || 0,
+                tax_amount: billData.tax_amount || 0,
+                discount_percentage: billData.discount_percentage || 0,
+                discount_amount: billData.discount_amount || 0,
+                total_amount: billData.total_amount || 0,
+                payment_method: billData.payment_method,
+                payment_status: billData.payment_status || 'pending',
+                amount_paid: billData.amount_paid || 0,
+                notes: billData.notes || ''
+              };
+
+              // Final validation to avoid 400 from backend
+              if (
+                !billPayload.invoice_number ||
+                !billPayload.customer_name ||
+                !billPayload.payment_method ||
+                !billPayload.total_amount ||
+                billPayload.total_amount <= 0
+              ) {
+                console.warn(
+                  `Skipping bill ${i + 1}: missing or invalid required fields for /api/bills`,
+                  billPayload
+                );
+                continue;
+              }
+
+              await db.insert('bills', billPayload);
             importedCount++;
-            } catch (err) {
-              console.error(`Error importing bill ${i + 1}:`, err);
+            } catch (err: any) {
+              const backendError = err?.response?.data?.error || err.message || 'Unknown error';
+              console.error(`Error importing bill ${i + 1}:`, backendError, err);
             }
           }
         }
@@ -1393,6 +1066,331 @@ const Settings: React.FC = () => {
         } else {
           error('Invalid file format. No customers found.');
         }
+      } else if (type === 'invoices') {
+        if (cleanedData.invoices && cleanedData.invoices.length > 0) {
+          setImportProgress(70);
+          let successCount = 0;
+
+          // Build customer lookup map (name + phone → id)
+          let allCustomersForLookup: any[] = [];
+          try {
+            allCustomersForLookup = await db.getCustomers();
+          } catch (err) {
+            console.error('Error fetching customers for invoice import:', err);
+          }
+          const customerLookup = new Map<string, any>();
+          if (Array.isArray(allCustomersForLookup)) {
+            for (const c of allCustomersForLookup) {
+              const nameKey = (c.name || '').toString().toLowerCase().trim();
+              const phoneKey = (c.phone || '').toString().replace(/\s+/g, '');
+              if (nameKey || phoneKey) {
+                customerLookup.set(`${nameKey}__${phoneKey}`, c);
+              }
+            }
+          }
+
+          for (let i = 0; i < cleanedData.invoices.length; i++) {
+            try {
+              // Remove fields that backend doesn't expect
+              const { id, ...invoiceData } = cleanedData.invoices[i];
+
+              // Ensure numeric fields
+              invoiceData.subtotal = parseFloat(invoiceData.subtotal) || 0;
+              invoiceData.tax_percentage = parseFloat(invoiceData.tax_percentage) || 0;
+              invoiceData.tax_amount = parseFloat(invoiceData.tax_amount) || 0;
+              invoiceData.discount_percentage = parseFloat(invoiceData.discount_percentage) || 0;
+              invoiceData.discount_amount = parseFloat(invoiceData.discount_amount) || 0;
+              invoiceData.total_amount = parseFloat(invoiceData.total_amount) || 0;
+              invoiceData.amount_paid = parseFloat(invoiceData.amount_paid) || 0;
+
+              // Customer name / phone
+              if (!invoiceData.customer_name || invoiceData.customer_name.trim() === '') {
+                invoiceData.customer_name = 'Unknown Customer';
+              }
+              if (!invoiceData.customer_phone) {
+                invoiceData.customer_phone = '';
+              } else {
+                invoiceData.customer_phone = invoiceData.customer_phone.toString().trim();
+              }
+
+              // Payment method default
+              if (!invoiceData.payment_method) {
+                invoiceData.payment_method = 'cash';
+              }
+
+              // Compute total_amount if needed
+              if (!invoiceData.total_amount || invoiceData.total_amount <= 0) {
+                const computedTotal =
+                  (invoiceData.subtotal || 0) +
+                  (invoiceData.tax_amount || 0) -
+                  (invoiceData.discount_amount || 0);
+                if (computedTotal > 0) {
+                  invoiceData.total_amount = computedTotal;
+                }
+              }
+
+              // Resolve customer_id via lookup (name + phone)
+              const nameKey = invoiceData.customer_name.toString().toLowerCase().trim();
+              const phoneKey = invoiceData.customer_phone.toString().replace(/\s+/g, '');
+              const lookupKey = `${nameKey}__${phoneKey}`;
+              let customerMatch = customerLookup.get(lookupKey);
+
+              // If no exact match, try by name only
+              if (!customerMatch && nameKey) {
+                for (const c of customerLookup.values()) {
+                  const cNameKey = (c.name || '').toString().toLowerCase().trim();
+                  if (cNameKey === nameKey) {
+                    customerMatch = c;
+                    break;
+                  }
+                }
+              }
+
+              // If still no match, create a new customer on-the-fly
+              if (!customerMatch) {
+                try {
+                  const newCustomer = await db.insert('customers', {
+                    name: invoiceData.customer_name || 'Unknown Customer',
+                    phone: invoiceData.customer_phone || `PHONE-${generateId()}`,
+                    email: '',
+                    address: invoiceData.customer_address || '',
+                    customer_type: 'individual',
+                    status: 'active'
+                  });
+                  customerMatch = newCustomer;
+                  const newNameKey = (newCustomer.name || '').toString().toLowerCase().trim();
+                  const newPhoneKey = (newCustomer.phone || '').toString().replace(/\s+/g, '');
+                  customerLookup.set(`${newNameKey}__${newPhoneKey}`, newCustomer);
+                } catch (createCustomerErr) {
+                  console.error('Failed to create customer for imported invoice:', invoiceData, createCustomerErr);
+                }
+              }
+
+              if (customerMatch && customerMatch.id != null) {
+                invoiceData.customer_id = customerMatch.id;
+                if (!invoiceData.customer_phone) {
+                  invoiceData.customer_phone = customerMatch.phone || `PHONE-${generateId()}`;
+                }
+              }
+
+              // Final validation (match backend /api/invoices expectations)
+              if (
+                !invoiceData.customer_id ||
+                !invoiceData.customer_name ||
+                !invoiceData.total_amount ||
+                !invoiceData.payment_method
+              ) {
+                console.warn(
+                  `Skipping invoice ${i + 1}: missing required fields for /api/invoices`,
+                  invoiceData
+                );
+                continue;
+              }
+
+              await db.insert('invoices', invoiceData);
+              successCount++;
+              setImportProgress(70 + (i / cleanedData.invoices.length) * 30);
+            } catch (err) {
+              console.error(`Error importing invoice ${i + 1}:`, err);
+            }
+          }
+          success(`${successCount} out of ${cleanedData.invoices.length} invoices imported successfully!`);
+        } else {
+          error('Invalid file format. No invoices found.');
+        }
+      } else if (type === 'bills') {
+        // Import only regular bills (not exchange bills)
+        const regularBills = cleanedData.bills?.filter((bill: any) => {
+          const billNumber = bill.bill_number || bill['Bill Number'] || '';
+          return !billNumber.startsWith('EXCH-');
+        }) || [];
+        
+        if (regularBills.length > 0) {
+          setImportProgress(70);
+          let successCount = 0;
+          for (let i = 0; i < regularBills.length; i++) {
+            try {
+              // Remove fields that backend doesn't expect
+              const { id, ...billData } = regularBills[i];
+
+              // Ensure numeric fields
+              billData.subtotal = parseFloat(billData.subtotal) || 0;
+              billData.tax_percentage = parseFloat(billData.tax_percentage) || 0;
+              billData.tax_amount = parseFloat(billData.tax_amount) || 0;
+              billData.discount_percentage = parseFloat(billData.discount_percentage) || 0;
+              billData.discount_amount = parseFloat(billData.discount_amount) || 0;
+              billData.total_amount = parseFloat(billData.total_amount) || 0;
+              billData.amount_paid = parseFloat(billData.amount_paid) || 0;
+
+              // Customer name / phone
+              if (!billData.customer_name || billData.customer_name.trim() === '') {
+                billData.customer_name = 'Unknown Customer';
+              }
+              if (!billData.customer_phone) {
+                billData.customer_phone = '';
+              }
+
+              // Payment method default
+              if (!billData.payment_method) {
+                billData.payment_method = 'cash';
+              }
+
+              // Compute total_amount if needed
+              if (!billData.total_amount || billData.total_amount <= 0) {
+                const computedTotal =
+                  (billData.subtotal || 0) +
+                  (billData.tax_amount || 0) -
+                  (billData.discount_amount || 0);
+                if (computedTotal > 0) {
+                  billData.total_amount = computedTotal;
+                }
+              }
+
+              // Build payload matching backend /api/bills
+              const billPayload: any = {
+                invoice_number: billData.bill_number || billData['Bill Number'] || generateBillNumber(),
+                customer_id: billData.customer_id || null,
+                customer_name: billData.customer_name,
+                customer_phone: billData.customer_phone || '',
+                customer_address: billData.customer_address || '',
+                items: Array.isArray(billData.items) ? billData.items : [],
+                subtotal: billData.subtotal || 0,
+                tax_percentage: billData.tax_percentage || 0,
+                tax_amount: billData.tax_amount || 0,
+                discount_percentage: billData.discount_percentage || 0,
+                discount_amount: billData.discount_amount || 0,
+                total_amount: billData.total_amount || 0,
+                payment_method: billData.payment_method,
+                payment_status: billData.payment_status || 'pending',
+                amount_paid: billData.amount_paid || 0,
+                notes: billData.notes || ''
+              };
+
+              // Final validation to avoid 400 from backend
+              if (
+                !billPayload.invoice_number ||
+                !billPayload.customer_name ||
+                !billPayload.total_amount ||
+                !billPayload.payment_method ||
+                !billPayload.items
+              ) {
+                console.error(
+                  `Skipping bill ${i + 1}: missing required fields`,
+                  billPayload
+                );
+                continue;
+              }
+
+              await db.insert('bills', billPayload);
+              successCount++;
+              setImportProgress(70 + (i / regularBills.length) * 30);
+            } catch (err) {
+              console.error(`Error importing bill ${i + 1}:`, err);
+            }
+          }
+          success(`${successCount} out of ${regularBills.length} bills imported successfully!`);
+        } else {
+          error('Invalid file format. No bills found.');
+        }
+      } else if (type === 'exchangeBills') {
+        // Import only exchange bills
+        const exchangeBills = cleanedData.exchangeBills || 
+          (cleanedData.bills?.filter((bill: any) => {
+            const billNumber = bill.bill_number || bill['Exchange Bill Number'] || '';
+            return billNumber.startsWith('EXCH-');
+          }) || []);
+        
+        if (exchangeBills.length > 0) {
+          setImportProgress(70);
+          let successCount = 0;
+          for (let i = 0; i < exchangeBills.length; i++) {
+            try {
+              // Remove fields that backend doesn't expect
+              const { id, ...billData } = exchangeBills[i];
+
+              // Ensure bill_number starts with EXCH-
+              if (!billData.bill_number?.startsWith('EXCH-')) {
+                billData.bill_number = `EXCH-${billData.bill_number || generateBillNumber()}`;
+              }
+
+              // Ensure numeric fields
+              billData.subtotal = parseFloat(billData.subtotal) || 0;
+              billData.tax_percentage = parseFloat(billData.tax_percentage) || 0;
+              billData.tax_amount = parseFloat(billData.tax_amount) || 0;
+              billData.discount_percentage = parseFloat(billData.discount_percentage) || 0;
+              billData.discount_amount = parseFloat(billData.discount_amount) || 0;
+              billData.total_amount = parseFloat(billData.total_amount) || 0;
+              billData.amount_paid = parseFloat(billData.amount_paid) || 0;
+
+              // Customer name / phone
+              if (!billData.customer_name || billData.customer_name.trim() === '') {
+                billData.customer_name = 'Unknown Customer';
+              }
+              if (!billData.customer_phone) {
+                billData.customer_phone = '';
+              }
+
+              // Payment method default
+              if (!billData.payment_method) {
+                billData.payment_method = 'cash';
+              }
+
+              // Compute total_amount if needed
+              if (!billData.total_amount || billData.total_amount <= 0) {
+                const computedTotal =
+                  (billData.subtotal || 0) +
+                  (billData.tax_amount || 0) -
+                  (billData.discount_amount || 0);
+                if (computedTotal > 0) {
+                  billData.total_amount = computedTotal;
+                }
+              }
+
+              // Build payload matching backend /api/bills
+              const billPayload: any = {
+                invoice_number: billData.bill_number || billData['Exchange Bill Number'] || generateBillNumber(),
+                customer_id: billData.customer_id || null,
+                customer_name: billData.customer_name,
+                customer_phone: billData.customer_phone || '',
+                customer_address: billData.customer_address || '',
+                items: Array.isArray(billData.items) ? billData.items : [],
+                subtotal: billData.subtotal || 0,
+                tax_percentage: billData.tax_percentage || 0,
+                tax_amount: billData.tax_amount || 0,
+                discount_percentage: billData.discount_percentage || 0,
+                discount_amount: billData.discount_amount || 0,
+                total_amount: billData.total_amount || 0,
+                payment_method: billData.payment_method,
+                payment_status: billData.payment_status || 'pending',
+                amount_paid: billData.amount_paid || 0,
+                notes: billData.notes || ''
+              };
+
+              // Final validation
+              if (
+                !billPayload.invoice_number ||
+                !billPayload.customer_name ||
+                !billPayload.total_amount ||
+                !billPayload.payment_method
+              ) {
+                console.warn(
+                  `Skipping exchange bill ${i + 1}: missing required fields`,
+                  billPayload
+                );
+                continue;
+              }
+
+              await db.insert('bills', billPayload);
+              successCount++;
+              setImportProgress(70 + (i / exchangeBills.length) * 30);
+            } catch (err) {
+              console.error(`Error importing exchange bill ${i + 1}:`, err);
+            }
+          }
+          success(`${successCount} out of ${exchangeBills.length} exchange bills imported successfully!`);
+        } else {
+          error('Invalid file format. No exchange bills found.');
+        }
       }
       
       // Update business info if available
@@ -1419,36 +1417,110 @@ const Settings: React.FC = () => {
   };
 
   // Data validation and cleaning function
+  // Helper to safely parse dates coming from Excel/JSON into ISO strings
+  const parseExcelDate = (value: any, fallback?: string): string => {
+    if (!value && fallback) return fallback;
+    if (!value) return new Date().toISOString();
+
+    // If already a Date
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    // If numeric (Excel serial date)
+    if (typeof value === 'number' && !isNaN(value)) {
+      // Excel serial date (days since 1899-12-30)
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const ms = value * 24 * 60 * 60 * 1000;
+      const dateFromSerial = new Date(excelEpoch.getTime() + ms);
+      if (!isNaN(dateFromSerial.getTime())) {
+        return dateFromSerial.toISOString();
+      }
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return fallback || new Date().toISOString();
+
+      // Try native Date parsing first
+      const parsed = Date.parse(trimmed);
+      if (!isNaN(parsed)) {
+        return new Date(parsed).toISOString();
+      }
+
+      // Try to parse common en-IN format: DD/MM/YYYY, HH:MM:SS am/pm
+      const match = trimmed.match(
+        /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:,\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?)?/i
+      );
+      if (match) {
+        const [, dStr, mStr, yStr, hStr, minStr, sStr, ampm] = match;
+        let day = parseInt(dStr, 10);
+        let month = parseInt(mStr, 10) - 1; // JS months 0-11
+        const year = parseInt(yStr, 10);
+        let hours = hStr ? parseInt(hStr, 10) : 0;
+        const minutes = minStr ? parseInt(minStr, 10) : 0;
+        const seconds = sStr ? parseInt(sStr, 10) : 0;
+
+        if (ampm) {
+          const isPM = ampm.toLowerCase() === 'pm';
+          if (isPM && hours < 12) hours += 12;
+          if (!isPM && hours === 12) hours = 0;
+        }
+
+        const date = new Date(year, month, day, hours, minutes, seconds);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      }
+    }
+
+    // Fallback
+    return fallback || new Date().toISOString();
+  };
+
   const validateAndCleanData = (data: any) => {
     const cleaned: any = {};
     
     if (data.products && Array.isArray(data.products)) {
       cleaned.products = data.products.map((product: any) => {
-        // Handle Excel column mapping
+        // Handle Excel column mapping - check for both export format and direct format
         const mappedProduct = {
           id: product.ID || product.id || generateId(),
-          name: product.Name || product.name || '',
+          name: product['Product Name'] || product.Name || product.name || '',
           category: product.Category || product.category || 'Chains',
           sku: product.SKU || product.sku || generateId(),
           barcode: product.Barcode || product.barcode || '',
-          weight: parseFloat(product['Weight (g)'] || product.weight) || 0,
+          weight: parseFloat(product['Weight (g)'] || product.weight || 0) || 0,
           purity: product.Purity || product.purity || '22K',
-          making_charge: parseFloat(product['Making Charge (₹)'] || product.making_charge) || 0,
-          current_rate: parseFloat(product['Current Rate (₹/g)'] || product.current_rate) || 0,
-          stock_quantity: parseInt(product['Stock Quantity'] || product.stock_quantity) || 0,
-          min_stock_level: parseInt(product['Min Stock Level'] || product.min_stock_level) || 1,
+          material_type: product['Material Type'] || product.material_type || 'Gold',
+          making_charge: parseFloat(product['Making Charge (₹)'] || product.making_charge || 0) || 0,
+          current_rate: parseFloat(product['Current Rate (₹/g)'] || product.current_rate || 0) || 0,
+          stock_quantity: parseInt(product['Stock Quantity'] || product.stock_quantity || 0) || 0,
+          min_stock_level: parseInt(product['Min Stock Level'] || product.min_stock_level || 1) || 1,
           status: (product.Status || product.status || 'active').toLowerCase(),
           created_at: product['Created At'] || product.created_at || new Date().toISOString(),
           updated_at: product['Updated At'] || product.updated_at || new Date().toISOString()
         };
         
-        // Validate required fields
-        if (!mappedProduct.name || !mappedProduct.sku) {
-          throw new Error(`Invalid product data: Missing required fields (Name, SKU)`);
+        // Validate required fields - skip rows with "No products found" or empty name
+        if (!mappedProduct.name || mappedProduct.name === 'No products found' || !mappedProduct.sku) {
+          // If name is missing but we have other data, generate a name
+          if (!mappedProduct.name || mappedProduct.name === 'No products found') {
+            if (mappedProduct.sku) {
+              mappedProduct.name = `Product ${mappedProduct.sku}`;
+            } else {
+              // Skip this product if both name and SKU are missing
+              return null;
+            }
+          }
+          // If SKU is missing but we have a name, generate SKU
+          if (!mappedProduct.sku) {
+            mappedProduct.sku = generateId();
+          }
         }
         
         return mappedProduct;
-      });
+      }).filter((product: any) => product !== null); // Remove null entries
     }
     
     if (data.customers && Array.isArray(data.customers)) {
@@ -1459,76 +1531,177 @@ const Settings: React.FC = () => {
           phone: customer.Phone || customer.phone || '',
           email: customer.Email || customer.email || '',
           address: customer.Address || customer.address || '',
-          created_at: customer['Created At'] || customer.created_at || new Date().toISOString()
+          city: customer.City || customer.city || '',
+          state: customer.State || customer.state || '',
+          pincode: customer.Pincode || customer.pincode || '',
+          gst_number: customer['GST Number'] || customer.gst_number || '',
+          customer_type: customer['Customer Type'] || customer.customer_type || 'individual',
+          status: (customer.Status || customer.status || 'active').toLowerCase(),
+          created_at: customer['Created At'] || customer.created_at || new Date().toISOString(),
+          updated_at: customer['Updated At'] || customer.updated_at || customer['Created At'] || customer.created_at || new Date().toISOString()
         };
         
-        // Validate required fields
-        if (!mappedCustomer.name || !mappedCustomer.phone) {
-          throw new Error(`Invalid customer data: Missing required fields (Name, Phone)`);
+        // Validate required fields - skip rows with "No customers found" or empty name
+        if (!mappedCustomer.name || mappedCustomer.name === 'No customers found' || !mappedCustomer.phone) {
+          // Skip this customer if both name and phone are missing
+          if ((!mappedCustomer.name || mappedCustomer.name === 'No customers found') && !mappedCustomer.phone) {
+            return null;
+          }
+          // Generate defaults if missing
+          if (!mappedCustomer.name || mappedCustomer.name === 'No customers found') {
+            mappedCustomer.name = mappedCustomer.phone ? `Customer ${mappedCustomer.phone}` : 'Unknown Customer';
+          }
+          if (!mappedCustomer.phone) {
+            mappedCustomer.phone = `PHONE-${generateId()}`;
+          }
         }
         
         return mappedCustomer;
-      });
+      }).filter((customer: any) => customer !== null); // Remove null entries
     }
     
     if (data.invoices && Array.isArray(data.invoices)) {
       cleaned.invoices = data.invoices.map((invoice: any) => {
+        const rawCreatedAt = invoice['Created At'] || invoice.created_at;
+        const rawUpdatedAt = invoice['Updated At'] || invoice.updated_at || rawCreatedAt;
+
         const mappedInvoice = {
           id: invoice.ID || invoice.id || generateId(),
           invoice_number: invoice['Invoice Number'] || invoice.invoice_number || generateInvoiceNumber(),
           customer_name: invoice['Customer Name'] || invoice.customer_name || '',
           customer_phone: invoice['Customer Phone'] || invoice.customer_phone || '',
-          subtotal: parseFloat(invoice['Subtotal (₹)'] || invoice.subtotal) || 0,
-          tax_percentage: parseFloat(invoice['Tax %'] || invoice.tax_percentage) || 0,
-          tax_amount: parseFloat(invoice['Tax Amount (₹)'] || invoice.tax_amount) || 0,
-          discount_percentage: parseFloat(invoice['Discount %'] || invoice.discount_percentage) || 0,
-          discount_amount: parseFloat(invoice['Discount Amount (₹)'] || invoice.discount_amount) || 0,
-          total_amount: parseFloat(invoice['Total Amount (₹)'] || invoice.total_amount) || 0,
+          subtotal: parseFloat(invoice['Subtotal (₹)'] || invoice.subtotal || 0) || 0,
+          tax_percentage: parseFloat(invoice['Tax %'] || invoice.tax_percentage || 0) || 0,
+          tax_amount: parseFloat(invoice['Tax Amount (₹)'] || invoice.tax_amount || 0) || 0,
+          discount_percentage: parseFloat(invoice['Discount %'] || invoice.discount_percentage || 0) || 0,
+          discount_amount: parseFloat(invoice['Discount Amount (₹)'] || invoice.discount_amount || 0) || 0,
+          total_amount: parseFloat(invoice['Total Amount (₹)'] || invoice.total_amount || 0) || 0,
           payment_method: (invoice['Payment Method'] || invoice.payment_method || 'cash').toLowerCase(),
           payment_status: (invoice['Payment Status'] || invoice.payment_status || 'pending').toLowerCase(),
-          amount_paid: parseFloat(invoice['Amount Paid (₹)'] || invoice.amount_paid) || 0,
+          amount_paid: parseFloat(invoice['Amount Paid (₹)'] || invoice.amount_paid || 0) || 0,
           items: invoice.items || [],
-          created_at: invoice['Created At'] || invoice.created_at || new Date().toISOString(),
-          updated_at: invoice['Updated At'] || invoice.updated_at || new Date().toISOString()
+          created_at: parseExcelDate(rawCreatedAt),
+          updated_at: parseExcelDate(rawUpdatedAt, parseExcelDate(rawCreatedAt))
         };
         
-        // Validate required fields
-        if (!mappedInvoice.invoice_number || !mappedInvoice.customer_name) {
-          throw new Error(`Invalid invoice data: Missing required fields (Invoice Number, Customer Name)`);
+        // Validate required fields - skip rows with "No invoices found"
+        if (!mappedInvoice.invoice_number || mappedInvoice.invoice_number === 'No invoices found' || !mappedInvoice.customer_name) {
+          // Skip this invoice if both invoice_number and customer_name are missing
+          if ((!mappedInvoice.invoice_number || mappedInvoice.invoice_number === 'No invoices found') && !mappedInvoice.customer_name) {
+            return null;
+          }
+          // Generate defaults if missing
+          if (!mappedInvoice.invoice_number || mappedInvoice.invoice_number === 'No invoices found') {
+            mappedInvoice.invoice_number = generateInvoiceNumber();
+          }
+          if (!mappedInvoice.customer_name) {
+            mappedInvoice.customer_name = 'Unknown Customer';
+          }
         }
         
         return mappedInvoice;
-      });
+      }).filter((invoice: any) => invoice !== null); // Remove null entries
     }
     
     if (data.bills && Array.isArray(data.bills)) {
       cleaned.bills = data.bills.map((bill: any) => {
+        const rawCreatedAt = bill['Created At'] || bill.created_at;
+        const rawUpdatedAt = bill['Updated At'] || bill.updated_at || rawCreatedAt;
+
         const mappedBill = {
           id: bill.ID || bill.id || generateId(),
           bill_number: bill['Bill Number'] || bill.bill_number || generateBillNumber(),
           customer_name: bill['Customer Name'] || bill.customer_name || '',
           customer_phone: bill['Customer Phone'] || bill.customer_phone || '',
-          subtotal: parseFloat(bill['Subtotal (₹)'] || bill.subtotal) || 0,
-          tax_percentage: parseFloat(bill['Tax %'] || bill.tax_percentage) || 0,
-          tax_amount: parseFloat(bill['Tax Amount (₹)'] || bill.tax_amount) || 0,
-          discount_percentage: parseFloat(bill['Discount %'] || bill.discount_percentage) || 0,
-          discount_amount: parseFloat(bill['Discount Amount (₹)'] || bill.discount_amount) || 0,
-          total_amount: parseFloat(bill['Total Amount (₹)'] || bill.total_amount) || 0,
+          subtotal: parseFloat(bill['Subtotal (₹)'] || bill.subtotal || 0) || 0,
+          tax_percentage: parseFloat(bill['Tax %'] || bill.tax_percentage || 0) || 0,
+          tax_amount: parseFloat(bill['Tax Amount (₹)'] || bill.tax_amount || 0) || 0,
+          discount_percentage: parseFloat(bill['Discount %'] || bill.discount_percentage || 0) || 0,
+          discount_amount: parseFloat(bill['Discount Amount (₹)'] || bill.discount_amount || 0) || 0,
+          total_amount: parseFloat(bill['Total Amount (₹)'] || bill.total_amount || 0) || 0,
           payment_method: (bill['Payment Method'] || bill.payment_method || 'cash').toLowerCase(),
           payment_status: (bill['Payment Status'] || bill.payment_status || 'pending').toLowerCase(),
-          amount_paid: parseFloat(bill['Amount Paid (₹)'] || bill.amount_paid) || 0,
+          amount_paid: parseFloat(bill['Amount Paid (₹)'] || bill.amount_paid || 0) || 0,
+          items: bill.items || [],
+          created_at: parseExcelDate(rawCreatedAt),
+          updated_at: parseExcelDate(rawUpdatedAt, parseExcelDate(rawCreatedAt))
+        };
+        
+        // Validate required fields - skip rows with "No bills found"
+        if (!mappedBill.bill_number || mappedBill.bill_number === 'No bills found' || !mappedBill.customer_name) {
+          // Skip this bill if both bill_number and customer_name are missing
+          if ((!mappedBill.bill_number || mappedBill.bill_number === 'No bills found') && !mappedBill.customer_name) {
+            return null;
+          }
+          // Generate defaults if missing
+          if (!mappedBill.bill_number || mappedBill.bill_number === 'No bills found') {
+            mappedBill.bill_number = generateBillNumber();
+          }
+          if (!mappedBill.customer_name) {
+            mappedBill.customer_name = 'Unknown Customer';
+          }
+        }
+        
+        return mappedBill;
+      }).filter((bill: any) => bill !== null); // Remove null entries
+    }
+
+    // Handle Exchange Bills (separate from regular bills)
+    if (data.exchangeBills && Array.isArray(data.exchangeBills)) {
+      cleaned.exchangeBills = data.exchangeBills.map((bill: any) => {
+        const mappedBill = {
+          id: bill.ID || bill.id || generateId(),
+          bill_number: bill['Exchange Bill Number'] || bill.bill_number || `EXCH-${generateBillNumber()}`,
+          customer_name: bill['Customer Name'] || bill.customer_name || '',
+          customer_phone: bill['Customer Phone'] || bill.customer_phone || '',
+          old_gold_weight: parseFloat(bill['Old Gold Weight (g)'] || bill.old_gold_weight || 0) || 0,
+          old_gold_purity: bill['Old Gold Purity'] || bill.old_gold_purity || '',
+          old_gold_rate: parseFloat(bill['Old Gold Rate (₹/g)'] || bill.old_gold_rate || 0) || 0,
+          old_gold_value: parseFloat(bill['Old Gold Value (₹)'] || bill.old_gold_value || 0) || 0,
+          exchange_rate: parseFloat(bill['Exchange Rate (₹/g)'] || bill.exchange_rate || 0) || 0,
+          exchange_difference: parseFloat(bill['Exchange Difference (₹)'] || bill.exchange_difference || 0) || 0,
+          subtotal: parseFloat(bill['Subtotal (₹)'] || bill.subtotal || 0) || 0,
+          tax_percentage: parseFloat(bill['Tax %'] || bill.tax_percentage || 0) || 0,
+          tax_amount: parseFloat(bill['Tax Amount (₹)'] || bill.tax_amount || 0) || 0,
+          discount_percentage: parseFloat(bill['Discount %'] || bill.discount_percentage || 0) || 0,
+          discount_amount: parseFloat(bill['Discount Amount (₹)'] || bill.discount_amount || 0) || 0,
+          total_amount: parseFloat(bill['Total Amount (₹)'] || bill.total_amount || 0) || 0,
+          payment_method: (bill['Payment Method'] || bill.payment_method || 'cash').toLowerCase(),
+          payment_status: (bill['Payment Status'] || bill.payment_status || 'pending').toLowerCase(),
+          amount_paid: parseFloat(bill['Amount Paid (₹)'] || bill.amount_paid || 0) || 0,
           items: bill.items || [],
           created_at: bill['Created At'] || bill.created_at || new Date().toISOString(),
           updated_at: bill['Updated At'] || bill.updated_at || new Date().toISOString()
         };
         
-        // Validate required fields
-        if (!mappedBill.bill_number || !mappedBill.customer_name) {
-          throw new Error(`Invalid bill data: Missing required fields (Bill Number, Customer Name)`);
+        // Ensure bill_number starts with EXCH-
+        if (!mappedBill.bill_number.startsWith('EXCH-')) {
+          mappedBill.bill_number = `EXCH-${mappedBill.bill_number}`;
+        }
+        
+        // Validate required fields - skip rows with "No exchange bills found"
+        if (!mappedBill.bill_number || mappedBill.bill_number === 'EXCH-No exchange bills found' || !mappedBill.customer_name) {
+          // Skip this bill if both bill_number and customer_name are missing
+          if ((!mappedBill.bill_number || mappedBill.bill_number === 'EXCH-No exchange bills found') && !mappedBill.customer_name) {
+            return null;
+          }
+          // Generate defaults if missing
+          if (!mappedBill.bill_number || mappedBill.bill_number === 'EXCH-No exchange bills found') {
+            mappedBill.bill_number = `EXCH-${generateBillNumber()}`;
+          }
+          if (!mappedBill.customer_name) {
+            mappedBill.customer_name = 'Unknown Customer';
+          }
         }
         
         return mappedBill;
-      });
+      }).filter((bill: any) => bill !== null); // Remove null entries
+      
+      // Merge exchange bills into bills array for import
+      if (!cleaned.bills) {
+        cleaned.bills = [];
+      }
+      cleaned.bills = [...(cleaned.bills || []), ...cleaned.exchangeBills];
     }
     
     // Handle business info
@@ -1544,130 +1717,1112 @@ const Settings: React.FC = () => {
   const generateInvoiceNumber = () => `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
   const generateBillNumber = () => `BILL-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
 
-  // Cloud Sync Functions
-  const syncToCloud = async () => {
+  // Helper function to create Excel workbook (reused from exportAllData)
+  const createExcelWorkbook = async () => {
+    try {
+      const db = Database.getInstance();
+      
+      if (!db) {
+        throw new Error('Database instance is not available');
+      }
+
+      const [products, customers, invoices, bills] = await Promise.all([
+        db.query('products').catch(err => {
+          console.error('Error querying products:', err);
+          return [];
+        }),
+        db.query('customers').catch(err => {
+          console.error('Error querying customers:', err);
+          return [];
+        }),
+        db.query('invoices').catch(err => {
+          console.error('Error querying invoices:', err);
+          return [];
+        }),
+        db.query('bills').catch(err => {
+          console.error('Error querying bills:', err);
+          return [];
+        })
+      ]);
+
+      // Ensure we have arrays
+      const productsArray = Array.isArray(products) ? products : [];
+      const customersArray = Array.isArray(customers) ? customers : [];
+      const invoicesArray = Array.isArray(invoices) ? invoices : [];
+      const billsArray = Array.isArray(bills) ? bills : [];
+
+      // Separate regular bills from exchange bills
+      const regularBills = billsArray.filter((bill: any) => {
+        const billNumber = bill?.bill_number || bill?.invoice_number || '';
+        return !billNumber.startsWith('EXCH-');
+      });
+      
+      const exchangeBills = billsArray.filter((bill: any) => {
+        const billNumber = bill?.bill_number || bill?.invoice_number || '';
+        return billNumber.startsWith('EXCH-');
+      });
+
+      const workbook = XLSX.utils.book_new();
+
+      // Products sheet
+      if (productsArray.length > 0) {
+        const productsData = productsArray.map((product: any) => ({
+          'ID': product.id || '',
+          'Product Name': product.name || '',
+          'Category': product.category || '',
+          'SKU': product.sku || '',
+          'Barcode': product.barcode || '',
+          'Weight (g)': product.weight || 0,
+          'Purity': product.purity || '',
+          'Material Type': product.material_type || '',
+          'Making Charge (₹)': product.making_charge || 0,
+          'Current Rate (₹/g)': product.current_rate || 0,
+          'Stock Quantity': product.stock_quantity || 0,
+          'Min Stock Level': product.min_stock_level || 0,
+          'Status': product.status || 'active',
+          'Created At': product.created_at ? new Date(product.created_at).toLocaleString('en-IN') : '',
+          'Updated At': product.updated_at ? new Date(product.updated_at).toLocaleString('en-IN') : ''
+        }));
+        const productsSheet = XLSX.utils.json_to_sheet(productsData);
+        XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products');
+      } else {
+        // Add empty sheet with headers
+        const productsSheet = XLSX.utils.json_to_sheet([{
+          'ID': '',
+          'Product Name': 'No products found',
+          'Category': '',
+          'SKU': '',
+          'Barcode': '',
+          'Weight (g)': '',
+          'Purity': '',
+          'Material Type': '',
+          'Making Charge (₹)': '',
+          'Current Rate (₹/g)': '',
+          'Stock Quantity': '',
+          'Min Stock Level': '',
+          'Status': '',
+          'Created At': '',
+          'Updated At': ''
+        }]);
+        XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products');
+      }
+
+      // Customers sheet
+      if (customersArray.length > 0) {
+        const customersData = customersArray.map((customer: any) => ({
+          'ID': customer.id || '',
+          'Name': customer.name || '',
+          'Customer Type': customer.customer_type || 'individual',
+          'Phone': customer.phone || '',
+          'Email': customer.email || '',
+          'Address': customer.address || '',
+          'City': customer.city || '',
+          'State': customer.state || '',
+          'Pincode': customer.pincode || '',
+          'GST Number': customer.gst_number || '',
+          'Status': customer.status || 'active',
+          'Created At': customer.created_at ? new Date(customer.created_at).toLocaleString('en-IN') : '',
+          'Updated At': (customer.updated_at || customer.created_at) ? new Date(customer.updated_at || customer.created_at).toLocaleString('en-IN') : ''
+        }));
+        const customersSheet = XLSX.utils.json_to_sheet(customersData);
+        XLSX.utils.book_append_sheet(workbook, customersSheet, 'Customers');
+      } else {
+        const customersSheet = XLSX.utils.json_to_sheet([{
+          'ID': '',
+          'Name': 'No customers found',
+          'Customer Type': '',
+          'Phone': '',
+          'Email': '',
+          'Address': '',
+          'City': '',
+          'State': '',
+          'Pincode': '',
+          'GST Number': '',
+          'Status': '',
+          'Created At': '',
+          'Updated At': ''
+        }]);
+        XLSX.utils.book_append_sheet(workbook, customersSheet, 'Customers');
+      }
+
+      // Invoices sheet
+      if (invoicesArray.length > 0) {
+        const invoicesData = invoicesArray.map((invoice: any) => ({
+          'ID': invoice.id || '',
+          'Invoice Number': invoice.invoice_number || '',
+          'Customer Name': invoice.customer_name || '',
+          'Customer Phone': invoice.customer_phone || '',
+          'Subtotal (₹)': invoice.subtotal || 0,
+          'Tax %': invoice.tax_percentage || 0,
+          'Tax Amount (₹)': invoice.tax_amount || 0,
+          'Discount %': invoice.discount_percentage || 0,
+          'Discount Amount (₹)': invoice.discount_amount || 0,
+          'Total Amount (₹)': invoice.total_amount || 0,
+          'Payment Method': invoice.payment_method || '',
+          'Payment Status': invoice.payment_status || '',
+          'Amount Paid (₹)': invoice.amount_paid || 0,
+          'Created At': invoice.created_at ? new Date(invoice.created_at).toLocaleString('en-IN') : '',
+          'Updated At': invoice.updated_at ? new Date(invoice.updated_at).toLocaleString('en-IN') : ''
+        }));
+        const invoicesSheet = XLSX.utils.json_to_sheet(invoicesData);
+        XLSX.utils.book_append_sheet(workbook, invoicesSheet, 'Invoices');
+      } else {
+        const invoicesSheet = XLSX.utils.json_to_sheet([{
+          'ID': '',
+          'Invoice Number': 'No invoices found',
+          'Customer Name': '',
+          'Customer Phone': '',
+          'Subtotal (₹)': '',
+          'Tax %': '',
+          'Tax Amount (₹)': '',
+          'Discount %': '',
+          'Discount Amount (₹)': '',
+          'Total Amount (₹)': '',
+          'Payment Method': '',
+          'Payment Status': '',
+          'Amount Paid (₹)': '',
+          'Created At': '',
+          'Updated At': ''
+        }]);
+        XLSX.utils.book_append_sheet(workbook, invoicesSheet, 'Invoices');
+      }
+
+      // Bills sheet
+      if (regularBills.length > 0) {
+        const billsData = regularBills.map((bill: any) => ({
+          'ID': bill.id || '',
+          'Bill Number': bill.bill_number || bill.invoice_number || '',
+          'Customer Name': bill.customer_name || '',
+          'Customer Phone': bill.customer_phone || '',
+          'Subtotal (₹)': bill.subtotal || 0,
+          'Tax %': bill.tax_percentage || 0,
+          'Tax Amount (₹)': bill.tax_amount || 0,
+          'Discount %': bill.discount_percentage || 0,
+          'Discount Amount (₹)': bill.discount_amount || 0,
+          'Total Amount (₹)': bill.total_amount || 0,
+          'Payment Method': bill.payment_method || '',
+          'Payment Status': bill.payment_status || '',
+          'Amount Paid (₹)': bill.amount_paid || 0,
+          'Created At': bill.created_at ? new Date(bill.created_at).toLocaleString('en-IN') : '',
+          'Updated At': bill.updated_at ? new Date(bill.updated_at).toLocaleString('en-IN') : ''
+        }));
+        const billsSheet = XLSX.utils.json_to_sheet(billsData);
+        XLSX.utils.book_append_sheet(workbook, billsSheet, 'Bills');
+      } else {
+        const billsSheet = XLSX.utils.json_to_sheet([{
+          'ID': '',
+          'Bill Number': 'No bills found',
+          'Customer Name': '',
+          'Customer Phone': '',
+          'Subtotal (₹)': '',
+          'Tax %': '',
+          'Tax Amount (₹)': '',
+          'Discount %': '',
+          'Discount Amount (₹)': '',
+          'Total Amount (₹)': '',
+          'Payment Method': '',
+          'Payment Status': '',
+          'Amount Paid (₹)': '',
+          'Created At': '',
+          'Updated At': ''
+        }]);
+        XLSX.utils.book_append_sheet(workbook, billsSheet, 'Bills');
+      }
+
+      // Exchange Bills sheet
+      if (exchangeBills.length > 0) {
+        const exchangeBillsData = exchangeBills.map((bill: any) => ({
+          'ID': bill.id || '',
+          'Exchange Bill Number': bill.bill_number || bill.invoice_number || '',
+          'Customer Name': bill.customer_name || '',
+          'Customer Phone': bill.customer_phone || '',
+          'Old Gold Weight (g)': bill.old_gold_weight || 0,
+          'Old Gold Purity': bill.old_gold_purity || '',
+          'Old Gold Rate (₹/g)': bill.old_gold_rate || 0,
+          'Old Gold Value (₹)': bill.old_gold_value || 0,
+          'Exchange Rate (₹/g)': bill.exchange_rate || 0,
+          'Exchange Difference (₹)': bill.exchange_difference || 0,
+          'Subtotal (₹)': bill.subtotal || 0,
+          'Tax %': bill.tax_percentage || 0,
+          'Tax Amount (₹)': bill.tax_amount || 0,
+          'Discount %': bill.discount_percentage || 0,
+          'Discount Amount (₹)': bill.discount_amount || 0,
+          'Total Amount (₹)': bill.total_amount || 0,
+          'Payment Method': bill.payment_method || '',
+          'Payment Status': bill.payment_status || '',
+          'Amount Paid (₹)': bill.amount_paid || 0,
+          'Created At': bill.created_at ? new Date(bill.created_at).toLocaleString('en-IN') : '',
+          'Updated At': bill.updated_at ? new Date(bill.updated_at).toLocaleString('en-IN') : ''
+        }));
+        const exchangeBillsSheet = XLSX.utils.json_to_sheet(exchangeBillsData);
+        XLSX.utils.book_append_sheet(workbook, exchangeBillsSheet, 'Exchange Bills');
+      } else {
+        const exchangeBillsSheet = XLSX.utils.json_to_sheet([{
+          'ID': '',
+          'Exchange Bill Number': 'No exchange bills found',
+          'Customer Name': '',
+          'Customer Phone': '',
+          'Old Gold Weight (g)': '',
+          'Old Gold Purity': '',
+          'Old Gold Rate (₹/g)': '',
+          'Old Gold Value (₹)': '',
+          'Exchange Rate (₹/g)': '',
+          'Exchange Difference (₹)': '',
+          'Subtotal (₹)': '',
+          'Tax %': '',
+          'Tax Amount (₹)': '',
+          'Discount %': '',
+          'Discount Amount (₹)': '',
+          'Total Amount (₹)': '',
+          'Payment Method': '',
+          'Payment Status': '',
+          'Amount Paid (₹)': '',
+          'Created At': '',
+          'Updated At': ''
+        }]);
+        XLSX.utils.book_append_sheet(workbook, exchangeBillsSheet, 'Exchange Bills');
+      }
+
+      // Ensure workbook has at least one sheet
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error('Workbook has no sheets');
+      }
+
+      return workbook;
+    } catch (err) {
+      console.error('Error creating Excel workbook:', err);
+      throw new Error(`Failed to create Excel workbook: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
+  // Google Drive Sync Functions
+  const syncToDrive = async () => {
+    if (!accessToken) {
+      error('Please connect to Google Drive first');
+      return;
+    }
+
+    // Check if token is expired
+    const expiryTime = localStorage.getItem('google_token_expiry');
+    if (expiryTime && Date.now() > parseInt(expiryTime)) {
+      error('Your Google Drive session has expired. Please reconnect.');
+      clearAuth();
+      return;
+    }
+
     setIsSyncing(true);
     setSyncStatus('syncing');
     
     try {
-      // Simulate cloud sync (in real implementation, this would connect to cloud storage)
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Create Excel workbook
+      const workbook = await createExcelWorkbook();
       
-      // Export data and simulate upload to cloud
-      const db = Database.getInstance();
-      const [products, customers, invoices, bills] = await Promise.all([
-        db.query('products'),
-        db.query('customers'),
-        db.query('invoices'),
-        db.query('bills')
-      ]);
+      // Validate workbook
+      if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error('Workbook is invalid or has no sheets');
+      }
 
-      const syncData = {
-        sync_date: new Date().toISOString(),
-        business_info: businessInfo,
-        data: {
-          products,
-          customers,
-          invoices,
-          bills
+      // Convert workbook to buffer
+      let excelBuffer: Uint8Array;
+      try {
+        const excelOutput = XLSX.write(workbook, { 
+          bookType: 'xlsx', 
+          type: 'array'
+        });
+
+        // Handle both ArrayBuffer and regular array
+        let arrayBuffer: ArrayBuffer;
+        if (excelOutput instanceof ArrayBuffer) {
+          arrayBuffer = excelOutput;
+        } else if (Array.isArray(excelOutput)) {
+          // Convert array to ArrayBuffer
+          arrayBuffer = new ArrayBuffer(excelOutput.length);
+          const view = new Uint8Array(arrayBuffer);
+          for (let i = 0; i < excelOutput.length; i++) {
+            view[i] = excelOutput[i];
+          }
+        } else {
+          console.error('Unexpected excelOutput type:', typeof excelOutput, excelOutput);
+          throw new Error(`Unexpected output type: ${typeof excelOutput}`);
         }
+        excelBuffer = new Uint8Array(arrayBuffer);
+      } catch (writeError) {
+        console.error('XLSX.write error:', writeError);
+        throw new Error(`Failed to convert workbook to buffer: ${writeError instanceof Error ? writeError.message : 'Unknown error'}`);
+      }
+
+      // Validate buffer
+      if (!excelBuffer || excelBuffer.length === 0) {
+        throw new Error('Generated Excel file buffer is empty');
+      }
+
+      const bufferLength = excelBuffer.length;
+
+      // Upload to Google Drive
+      const fileName = `gold-billing-backup-${new Date().toISOString().split('T')[0]}.xlsx`;
+      const fileMetadata = {
+        name: fileName,
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       };
 
-      // In a real implementation, this would upload to cloud storage
-      // For now, we'll store in localStorage as a simulation
-      localStorage.setItem('cloud_backup', JSON.stringify(syncData));
+      let fileId = driveFileId;
+      
+      if (fileId) {
+        // Update existing file using resumable upload
+        // Step 1: Initialize resumable upload for update
+        const initResponse = await fetch(
+          `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=resumable`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(fileMetadata),
+          }
+        );
+        
+        if (!initResponse.ok) {
+          if (initResponse.status === 401) {
+            clearAuth();
+            throw new Error('Authentication expired. Please reconnect to Google Drive.');
+          }
+          const errorData = await initResponse.json();
+          throw new Error(errorData.error?.message || 'Failed to initiate file update');
+        }
+        
+        const uploadUrl = initResponse.headers.get('Location');
+        if (!uploadUrl) {
+          throw new Error('Failed to get upload URL');
+        }
+        
+        // Step 2: Upload file content
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Length': bufferLength.toString(),
+          },
+          body: excelBuffer.buffer.slice(excelBuffer.byteOffset, excelBuffer.byteOffset + excelBuffer.byteLength) as ArrayBuffer,
+        });
+        
+        if (!uploadResponse.ok) {
+          if (uploadResponse.status === 401) {
+            clearAuth();
+            throw new Error('Authentication expired. Please reconnect to Google Drive.');
+          }
+          const errorText = await uploadResponse.text();
+          throw new Error(`Failed to upload file: ${errorText}`);
+        }
+      } else {
+        // Create new file using resumable upload (simpler and more reliable)
+        // Step 1: Initialize resumable upload
+        const initResponse = await fetch(
+          'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(fileMetadata),
+          }
+        );
+        
+        if (!initResponse.ok) {
+          if (initResponse.status === 401) {
+            clearAuth();
+            throw new Error('Authentication expired. Please reconnect to Google Drive.');
+          }
+          const errorData = await initResponse.json();
+          throw new Error(errorData.error?.message || 'Failed to initiate file upload');
+        }
+        
+        const uploadUrl = initResponse.headers.get('Location');
+        if (!uploadUrl) {
+          throw new Error('Failed to get upload URL');
+        }
+        
+        // Step 2: Upload file content
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Length': bufferLength.toString(),
+          },
+          body: excelBuffer.buffer.slice(excelBuffer.byteOffset, excelBuffer.byteOffset + excelBuffer.byteLength) as ArrayBuffer,
+        });
+        
+        if (!uploadResponse.ok) {
+          if (uploadResponse.status === 401) {
+            clearAuth();
+            throw new Error('Authentication expired. Please reconnect to Google Drive.');
+          }
+          const errorText = await uploadResponse.text();
+          throw new Error(`Failed to upload file: ${errorText}`);
+        }
+        
+        const fileData = await uploadResponse.json();
+        fileId = fileData.id;
+        if (fileId) {
+          setDriveFileId(fileId);
+          localStorage.setItem('drive_file_id', fileId);
+        }
+      }
       
       setSyncStatus('success');
       setLastBackup(new Date().toISOString());
-      success('Data synced to cloud successfully!');
+      success('Data synced to Google Drive successfully!');
       
-    } catch (err) {
-      console.error('Cloud sync error:', err);
+    } catch (err: any) {
+      console.error('Drive sync error:', err);
       setSyncStatus('error');
-      error('Failed to sync to cloud. Please try again.');
+      error(err.message || 'Failed to sync to Google Drive. Please try again.');
     } finally {
       setIsSyncing(false);
       setTimeout(() => setSyncStatus('idle'), 3000);
     }
   };
 
-  const restoreFromCloud = async () => {
-    if (window.confirm('Are you sure you want to restore from cloud? This will replace your current data!')) {
+  const restoreFromDrive = async () => {
+    if (!accessToken) {
+      error('Please connect to Google Drive first');
+      return;
+    }
+
+    // Check if token is expired
+    const expiryTime = localStorage.getItem('google_token_expiry');
+    if (expiryTime && Date.now() > parseInt(expiryTime)) {
+      error('Your Google Drive session has expired. Please reconnect.');
+      clearAuth();
+      return;
+    }
+
+    if (!driveFileId) {
+      error('No backup file found in Google Drive. Please sync first.');
+      return;
+    }
+
       setIsSyncing(true);
       setSyncStatus('syncing');
       
       try {
-        // In a real implementation, this would download from cloud storage
-        const cloudData = localStorage.getItem('cloud_backup');
-        
-        if (!cloudData) {
-          throw new Error('No cloud backup found');
+      // Download file from Google Drive
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+          },
         }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          clearAuth();
+          throw new Error('Authentication expired. Please reconnect to Google Drive.');
+        }
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || 'Failed to download file');
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      
+      // Parse Excel file - match exact export structure
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      
+      // Import data - use same structure as import function
+      const sheetNames = workbook.SheetNames;
+      let importData: any = {
+        products: [],
+        customers: [],
+        invoices: [],
+        bills: [],
+        exchangeBills: []
+      };
+      
+      sheetNames.forEach(sheetName => {
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+          header: 1,
+          defval: '',
+          blankrows: false
+        });
         
-        const syncData = JSON.parse(cloudData);
+        // Skip empty sheets or sheets with only headers
+        if (jsonData.length <= 1) return;
         
-        // Clear existing data
+        // Convert array of arrays to array of objects using exact column headers from export
+        const headers = jsonData[0] as string[];
+        const rows = jsonData.slice(1) as any[][];
+        const objects = rows.map((row: any[]) => {
+          const obj: any = {};
+          headers.forEach((header, index) => {
+            if (header && row[index] !== undefined && row[index] !== '') {
+              obj[header] = row[index];
+            }
+          });
+          return obj;
+        }).filter(obj => Object.keys(obj).length > 0); // Remove empty objects
+        
+        // Match exact sheet names from export structure
+        if (sheetName === 'Products') {
+          importData.products = objects;
+        } else if (sheetName === 'Customers') {
+          importData.customers = objects;
+        } else if (sheetName === 'Invoices') {
+          importData.invoices = objects;
+        } else if (sheetName === 'Bills') {
+          importData.bills = objects;
+        } else if (sheetName === 'Exchange Bills') {
+          importData.exchangeBills = objects;
+        }
+        // Fallback for case-insensitive matching (for backward compatibility)
+        else if (sheetName.toLowerCase() === 'products') {
+          importData.products = objects;
+        } else if (sheetName.toLowerCase() === 'customers') {
+          importData.customers = objects;
+        } else if (sheetName.toLowerCase() === 'invoices') {
+          importData.invoices = objects;
+        } else if (sheetName.toLowerCase() === 'bills') {
+          importData.bills = objects;
+        } else if (sheetName.toLowerCase() === 'exchange bills') {
+          importData.exchangeBills = objects;
+        }
+      });
+
+      // Validate and clean data
+      const cleanedData = validateAndCleanData(importData);
+      
+      // Log what we're about to restore for debugging
+      console.log('Data to restore:', {
+        products: cleanedData.products?.length || 0,
+        customers: cleanedData.customers?.length || 0,
+        invoices: cleanedData.invoices?.length || 0,
+        bills: cleanedData.bills?.length || 0,
+        exchangeBills: cleanedData.exchangeBills?.length || 0
+      });
+      
         const db = Database.getInstance();
+      
+      // Clear existing data
         await db.query('DELETE FROM bills');
         await db.query('DELETE FROM invoices');
         await db.query('DELETE FROM customers');
         await db.query('DELETE FROM products');
         
-        // Restore data
-        if (syncData.data.products) {
-          for (const product of syncData.data.products) {
-            await db.insert('products', product);
+      // Restore data with error handling
+      let successCount = 0;
+      let errorCount = 0;
+      const errors: string[] = [];
+
+      // Restore products
+      if (cleanedData.products && cleanedData.products.length > 0) {
+        console.log('Restoring products, sample:', cleanedData.products[0]);
+        for (const product of cleanedData.products) {
+          try {
+            // Remove fields that backend doesn't expect
+            const { id, created_at, updated_at, ...productData } = product;
+            
+            // Skip if name is missing or is placeholder
+            if (!productData.name || productData.name === 'No products found' || productData.name.trim() === '') {
+              errorCount++;
+              errors.push(`Product: Missing name`);
+              continue;
+            }
+            
+            // validateAndCleanData already mapped and parsed the data correctly
+            // Only provide defaults for fields that are truly missing (undefined/null/empty string)
+            // Don't change values that are 0 or valid empty strings - preserve original Excel data
+            
+            // SKU - only generate if completely missing
+            if (!productData.sku || (typeof productData.sku === 'string' && productData.sku.trim() === '')) {
+              productData.sku = generateId();
+            }
+            
+            // Category - only default if missing
+            if (!productData.category || (typeof productData.category === 'string' && productData.category.trim() === '')) {
+              productData.category = 'Chains';
+            }
+            
+            // Weight - backend requires weight > 0, so ensure it's at least 1
+            if (productData.weight === undefined || productData.weight === null || productData.weight === '') {
+              productData.weight = 1;
+            } else {
+              // Ensure it's a number
+              const weightNum = typeof productData.weight === 'number' ? productData.weight : parseFloat(productData.weight);
+              // Backend requires weight > 0, so if it's 0 or invalid, set to 1
+              productData.weight = (weightNum && weightNum > 0) ? weightNum : 1;
+            }
+            
+            // Purity - backend requires non-empty string
+            if (!productData.purity || (typeof productData.purity === 'string' && productData.purity.trim() === '')) {
+              productData.purity = '22K';
+            } else {
+              // Ensure it's a string
+              productData.purity = String(productData.purity).trim() || '22K';
+            }
+            
+            // Material type - only default if missing
+            if (!productData.material_type || (typeof productData.material_type === 'string' && productData.material_type.trim() === '')) {
+              productData.material_type = 'Gold';
+            }
+            
+            // Making charge - preserve 0, only default if truly missing
+            if (productData.making_charge === undefined || productData.making_charge === null || productData.making_charge === '') {
+              productData.making_charge = 0;
+            } else {
+              productData.making_charge = typeof productData.making_charge === 'number' ? productData.making_charge : parseFloat(productData.making_charge) || 0;
+            }
+            
+            // Current rate - preserve 0 if it was in Excel, only set default if truly missing
+            if (productData.current_rate === undefined || productData.current_rate === null || productData.current_rate === '') {
+              // Truly missing, set default based on purity
+              const defaultRates: { [key: string]: number } = {
+                '24K': 6000,
+                '22K': 5500,
+                '18K': 4800,
+                '14K': 3800,
+              };
+              productData.current_rate = defaultRates[productData.purity] || 5500;
+            } else {
+              // Ensure it's a number, but preserve the value (even if 0)
+              productData.current_rate = typeof productData.current_rate === 'number' ? productData.current_rate : parseFloat(productData.current_rate) || 0;
+            }
+            
+            // Stock quantity - preserve 0, only default if truly missing
+            if (productData.stock_quantity === undefined || productData.stock_quantity === null || productData.stock_quantity === '') {
+              productData.stock_quantity = 0;
+            } else {
+              productData.stock_quantity = typeof productData.stock_quantity === 'number' ? productData.stock_quantity : parseInt(productData.stock_quantity) || 0;
+            }
+            
+            // Min stock level - preserve values, only default if truly missing or invalid
+            if (productData.min_stock_level === undefined || productData.min_stock_level === null || productData.min_stock_level === '' || productData.min_stock_level < 0) {
+              productData.min_stock_level = 1;
+            } else {
+              productData.min_stock_level = typeof productData.min_stock_level === 'number' ? productData.min_stock_level : parseInt(productData.min_stock_level) || 1;
+            }
+            
+            // Final validation before sending - ensure all required fields are present and valid
+            if (!productData.name || !productData.category || !productData.sku || 
+                !productData.weight || productData.weight <= 0 || 
+                !productData.purity || productData.purity.trim() === '') {
+              errorCount++;
+              errors.push(`Product ${productData.name || 'Unknown'}: Missing or invalid required fields (name: ${!!productData.name}, category: ${!!productData.category}, sku: ${!!productData.sku}, weight: ${productData.weight}, purity: ${productData.purity})`);
+              console.error('Product missing required fields:', {
+                name: productData.name,
+                category: productData.category,
+                sku: productData.sku,
+                weight: productData.weight,
+                purity: productData.purity,
+                fullData: productData
+              });
+              continue;
+            }
+            
+            // Log the product being inserted for debugging
+            if (successCount === 0) {
+              console.log('First product being inserted:', productData);
+            }
+            
+            await db.insert('products', productData);
+            successCount++;
+          } catch (err: any) {
+            errorCount++;
+            const errorMsg = err?.response?.data?.error || err?.message || 'Unknown error';
+            errors.push(`Product ${product.name || product.sku || 'Unknown'}: ${errorMsg}`);
+            console.error('Error restoring product:', product, 'Error:', err);
           }
         }
-        
-        if (syncData.data.customers) {
-          for (const customer of syncData.data.customers) {
-            await db.insert('customers', customer);
+      }
+
+      // Restore customers
+      let restoredCustomers: any[] = [];
+      if (cleanedData.customers && cleanedData.customers.length > 0) {
+        for (const customer of cleanedData.customers) {
+          try {
+            // Remove fields that backend doesn't expect
+            const { id, created_at, updated_at, ...customerData } = customer;
+            
+            // Ensure required fields are present
+            if (!customerData.name || !customerData.phone) {
+              errorCount++;
+              errors.push(`Customer ${customerData.name || 'Unknown'}: Missing required fields`);
+              continue;
+            }
+            
+            const savedCustomer = await db.insert('customers', customerData);
+            restoredCustomers.push(savedCustomer);
+            successCount++;
+          } catch (err: any) {
+            errorCount++;
+            const errorMsg = err?.response?.data?.error || err?.message || 'Unknown error';
+            errors.push(`Customer ${customer.name || customer.phone || 'Unknown'}: ${errorMsg}`);
+            console.error('Error restoring customer:', customer, err);
           }
         }
-        
-        if (syncData.data.invoices) {
-          for (const invoice of syncData.data.invoices) {
-            await db.insert('invoices', invoice);
-          }
-        }
-        
-        if (syncData.data.bills) {
-          for (const bill of syncData.data.bills) {
-            await db.insert('bills', bill);
-          }
-        }
-        
-        setSyncStatus('success');
-        success('Data restored from cloud successfully!');
-        
+      }
+
+      // Build customer lookup map (name + phone → id) after restoring customers
+      if (restoredCustomers.length === 0) {
+        try {
+          restoredCustomers = await db.getCustomers();
       } catch (err) {
-        console.error('Cloud restore error:', err);
+          console.error('Error fetching customers after restore:', err);
+        }
+      }
+      const customerLookup = new Map<string, any>();
+      if (restoredCustomers && Array.isArray(restoredCustomers)) {
+        for (const c of restoredCustomers) {
+          const nameKey = (c.name || '').toString().toLowerCase().trim();
+          const phoneKey = (c.phone || '').toString().replace(/\s+/g, '');
+          if (nameKey || phoneKey) {
+            customerLookup.set(`${nameKey}__${phoneKey}`, c);
+          }
+        }
+      }
+
+      // Restore invoices
+      if (cleanedData.invoices && cleanedData.invoices.length > 0) {
+        console.log('Restoring invoices, sample:', cleanedData.invoices[0]);
+        for (const invoice of cleanedData.invoices) {
+          try {
+            // Remove fields that backend doesn't expect
+            const { id, ...invoiceData } = invoice;
+            
+            // Ensure numeric fields are numbers (0 is allowed!)
+            invoiceData.subtotal = parseFloat(invoiceData.subtotal) || 0;
+            invoiceData.tax_percentage = parseFloat(invoiceData.tax_percentage) || 0;
+            invoiceData.tax_amount = parseFloat(invoiceData.tax_amount) || 0;
+            invoiceData.discount_percentage = parseFloat(invoiceData.discount_percentage) || 0;
+            invoiceData.discount_amount = parseFloat(invoiceData.discount_amount) || 0;
+            invoiceData.total_amount = parseFloat(invoiceData.total_amount) || 0;
+            invoiceData.amount_paid = parseFloat(invoiceData.amount_paid) || 0;
+
+            // Backend requires customer_id (NOT NULL), customer_name, customer_phone, total_amount (>0), payment_method, items (truthy)
+            if (!invoiceData.customer_name || invoiceData.customer_name.trim() === '') {
+              invoiceData.customer_name = 'Unknown Customer';
+            }
+
+            // Normalize phone
+            if (!invoiceData.customer_phone || invoiceData.customer_phone.toString().trim() === '') {
+              invoiceData.customer_phone = '';
+            } else {
+              invoiceData.customer_phone = invoiceData.customer_phone.toString().trim();
+            }
+
+            if (!invoiceData.payment_method) {
+              invoiceData.payment_method = 'cash';
+            }
+
+            // If total_amount is missing/0, try to recompute from other fields
+            if (!invoiceData.total_amount || invoiceData.total_amount <= 0) {
+              const computedTotal =
+                (invoiceData.subtotal || 0) +
+                (invoiceData.tax_amount || 0) -
+                (invoiceData.discount_amount || 0);
+              if (computedTotal > 0) {
+                invoiceData.total_amount = computedTotal;
+              }
+            }
+
+            // Resolve customer_id via lookup (name + phone)
+            const nameKey = invoiceData.customer_name.toString().toLowerCase().trim();
+            const phoneKey = invoiceData.customer_phone.toString().replace(/\s+/g, '');
+            const lookupKey = `${nameKey}__${phoneKey}`;
+            let customerMatch = customerLookup.get(lookupKey);
+
+            // If no exact match, try matching by name only
+            if (!customerMatch && nameKey) {
+              for (const c of customerLookup.values()) {
+                const cNameKey = (c.name || '').toString().toLowerCase().trim();
+                if (cNameKey === nameKey) {
+                  customerMatch = c;
+                  break;
+                }
+              }
+            }
+
+            // If still no match, create a new customer on-the-fly
+            if (!customerMatch) {
+              try {
+                const newCustomer = await db.insert('customers', {
+                  name: invoiceData.customer_name || 'Unknown Customer',
+                  phone: invoiceData.customer_phone || `PHONE-${generateId()}`,
+                  email: '',
+                  address: invoiceData.customer_address || '',
+                  customer_type: 'individual',
+                  status: 'active'
+                });
+                customerMatch = newCustomer;
+                const newNameKey = (newCustomer.name || '').toString().toLowerCase().trim();
+                const newPhoneKey = (newCustomer.phone || '').toString().replace(/\s+/g, '');
+                customerLookup.set(`${newNameKey}__${newPhoneKey}`, newCustomer);
+              } catch (createCustomerErr) {
+                console.error('Failed to create customer for invoice:', invoiceData, createCustomerErr);
+              }
+            }
+
+            // Attach customer_id (required by invoices table)
+            if (customerMatch && customerMatch.id != null) {
+              invoiceData.customer_id = customerMatch.id;
+              if (!invoiceData.customer_phone) {
+                invoiceData.customer_phone = customerMatch.phone || `PHONE-${generateId()}`;
+              }
+            }
+
+            // If still no customer_id, we cannot insert due to NOT NULL constraint
+            if (!invoiceData.customer_id) {
+              errorCount++;
+              errors.push(
+                `Invoice ${invoiceData.invoice_number || 'Unknown'}: Could not resolve customer_id`
+              );
+              console.error('Invoice missing customer_id after lookup:', invoiceData);
+              continue;
+            }
+
+            // Final validation: match backend required fields
+            if (
+              !invoiceData.customer_id ||
+              !invoiceData.customer_name ||
+              !invoiceData.customer_phone ||
+              !invoiceData.total_amount ||
+              !invoiceData.payment_method
+            ) {
+              errorCount++;
+              errors.push(
+                `Invoice ${invoiceData.invoice_number || 'Unknown'}: Missing required fields after processing`
+              );
+              console.error('Invoice missing required fields:', invoiceData);
+              continue;
+            }
+            
+            // Ensure items is an array (can be empty, backend only checks truthiness)
+            if (!Array.isArray(invoiceData.items)) {
+              invoiceData.items = [];
+            }
+            
+            await db.insert('invoices', invoiceData);
+            successCount++;
+          } catch (err: any) {
+            errorCount++;
+            const errorMsg = err?.response?.data?.error || err?.message || 'Unknown error';
+            errors.push(`Invoice ${invoice.invoice_number || 'Unknown'}: ${errorMsg}`);
+            console.error('Error restoring invoice:', invoice, err);
+          }
+        }
+      }
+
+      // Restore bills (including merged exchange bills)
+      if (cleanedData.bills && cleanedData.bills.length > 0) {
+        console.log('Restoring bills (including exchange bills), sample:', cleanedData.bills[0]);
+        for (const bill of cleanedData.bills) {
+          try {
+            // Remove fields that backend doesn't expect
+            const { id, ...billData } = bill;
+            
+            // Ensure numeric fields are numbers (0 is allowed!)
+            billData.subtotal = parseFloat(billData.subtotal) || 0;
+            billData.tax_percentage = parseFloat(billData.tax_percentage) || 0;
+            billData.tax_amount = parseFloat(billData.tax_amount) || 0;
+            billData.discount_percentage = parseFloat(billData.discount_percentage) || 0;
+            billData.discount_amount = parseFloat(billData.discount_amount) || 0;
+            billData.total_amount = parseFloat(billData.total_amount) || 0;
+            billData.amount_paid = parseFloat(billData.amount_paid) || 0;
+
+            // Backend requires invoice_number, customer_name, total_amount (>0), payment_method, items (truthy)
+            if (!billData.customer_name || billData.customer_name.trim() === '') {
+              billData.customer_name = 'Unknown Customer';
+            }
+
+            if (!billData.payment_method) {
+              billData.payment_method = 'cash';
+            }
+
+            // Compute total_amount if missing/0
+            if (!billData.total_amount || billData.total_amount <= 0) {
+              const computedTotal =
+                (billData.subtotal || 0) +
+                (billData.tax_amount || 0) -
+                (billData.discount_amount || 0);
+              if (computedTotal > 0) {
+                billData.total_amount = computedTotal;
+              }
+            }
+
+            // Map to backend payload shape (uses invoice_number but stores as bill_number)
+            const billPayload: any = {
+              invoice_number: billData.bill_number || billData.invoice_number || generateBillNumber(),
+              customer_id: billData.customer_id || null,
+              customer_name: billData.customer_name,
+              customer_phone: billData.customer_phone || '',
+              customer_address: billData.customer_address || '',
+              items: Array.isArray(billData.items) ? billData.items : [],
+              subtotal: billData.subtotal || 0,
+              tax_percentage: billData.tax_percentage || 0,
+              tax_amount: billData.tax_amount || 0,
+              discount_percentage: billData.discount_percentage || 0,
+              discount_amount: billData.discount_amount || 0,
+              total_amount: billData.total_amount || 0,
+              payment_method: billData.payment_method,
+              payment_status: billData.payment_status || 'pending',
+              amount_paid: billData.amount_paid || 0,
+              notes: billData.notes || ''
+            };
+
+            // Final validation for bills
+            if (
+              !billPayload.invoice_number ||
+              !billPayload.customer_name ||
+              !billPayload.total_amount ||
+              !billPayload.payment_method
+            ) {
+              errorCount++;
+              errors.push(
+                `Bill ${billData.bill_number || 'Unknown'}: Missing required fields after processing`
+              );
+              console.error('Bill missing required fields:', billPayload);
+              continue;
+            }
+            
+            await db.insert('bills', billPayload);
+            successCount++;
+          } catch (err: any) {
+            errorCount++;
+            const errorMsg = err?.response?.data?.error || err?.message || 'Unknown error';
+            errors.push(`Bill ${bill.bill_number || 'Unknown'}: ${errorMsg}`);
+            console.error('Error restoring bill:', bill, err);
+          }
+        }
+      }
+
+      // Show summary
+      if (errorCount > 0) {
+        console.warn('Restore completed with errors:', errors);
+        if (successCount > 0) {
+          setSyncStatus('success');
+          success(`Restored ${successCount} items successfully. ${errorCount} items failed. Check console for details.`);
+        } else {
+          throw new Error(`Failed to restore data. ${errorCount} errors occurred. First error: ${errors[0]}`);
+        }
+      } else {
+        setSyncStatus('success');
+        success(`Successfully restored ${successCount} items from Google Drive!`);
+      }
+      
+    } catch (err: any) {
+      console.error('Drive restore error:', err);
         setSyncStatus('error');
-        error('Failed to restore from cloud. Please try again.');
+      error(err.message || 'Failed to restore from Google Drive. Please try again.');
       } finally {
         setIsSyncing(false);
         setTimeout(() => setSyncStatus('idle'), 3000);
-      }
     }
   };
 
   const clearAllData = async () => {
-    if (window.confirm('Are you sure you want to clear all data? This action cannot be undone!')) {
       try {
         const db = Database.getInstance();
-        
-        // Clear all data in reverse order to handle foreign key constraints
-        await db.query('DELETE FROM bills');
-        await db.query('DELETE FROM invoices');
-        await db.query('DELETE FROM customers');
-        await db.query('DELETE FROM products');
-        
-        success('All data cleared successfully!');
+      setIsSyncing(true);
+      setSyncStatus('syncing');
+
+      let deletedCount = 0;
+      let errorCount = 0;
+
+      // Step 1: Delete all bills (including exchange bills) - must be first due to foreign keys
+      try {
+        const bills = await db.getBills();
+        if (bills && bills.length > 0) {
+          for (const bill of bills) {
+            try {
+              // Use API directly to delete bills
+              await apiEndpoints.bills.delete(bill.id);
+              deletedCount++;
+            } catch (err) {
+              console.error(`Error deleting bill ${bill.id}:`, err);
+              errorCount++;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching bills:', err);
+      }
+
+      // Step 2: Delete all invoices - must be before customers/products
+      try {
+        const invoices = await db.getInvoices();
+        if (invoices && invoices.length > 0) {
+          for (const invoice of invoices) {
+            try {
+              // Use API directly to delete invoices
+              await apiEndpoints.invoices.delete(invoice.id);
+              deletedCount++;
+            } catch (err) {
+              console.error(`Error deleting invoice ${invoice.id}:`, err);
+              errorCount++;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching invoices:', err);
+      }
+
+      // Step 3: Delete all customers
+      try {
+        const customers = await db.getCustomers();
+        if (customers && customers.length > 0) {
+          for (const customer of customers) {
+            try {
+              await db.deleteCustomer(customer.id);
+              deletedCount++;
+            } catch (err) {
+              console.error(`Error deleting customer ${customer.id}:`, err);
+              errorCount++;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching customers:', err);
+      }
+
+      // Step 4: Delete all products (with cascade to handle references)
+      try {
+        const products = await db.getProducts();
+        if (products && products.length > 0) {
+          for (const product of products) {
+            try {
+              // Use cascade delete to handle foreign key references
+              await db.deleteProductWithCascade(product.id);
+              deletedCount++;
+            } catch (err) {
+              console.error(`Error deleting product ${product.id}:`, err);
+              errorCount++;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching products:', err);
+      }
+
+      setIsSyncing(false);
+      setSyncStatus('idle');
+
+      if (errorCount > 0) {
+        setSyncStatus('error');
+        error(`Cleared ${deletedCount} items, but ${errorCount} items failed to delete. Check console for details.`);
+        setTimeout(() => setSyncStatus('idle'), 3000);
+      } else {
+        setSyncStatus('success');
+        success(`All data cleared successfully! Deleted ${deletedCount} items.`);
+        setTimeout(() => setSyncStatus('idle'), 3000);
+      }
       } catch (err) {
         console.error('Clear data error:', err);
+      setIsSyncing(false);
+      setSyncStatus('error');
         error('Failed to clear data. Please try again.');
-      }
+      setTimeout(() => setSyncStatus('idle'), 3000);
     }
   };
 
@@ -1838,11 +2993,11 @@ const Settings: React.FC = () => {
               </div>
               
               <div className="space-y-6">
-                {/* Cloud Sync Section */}
+                {/* Google Drive Sync Section */}
                 <div className="p-6 border border-blue-200 bg-blue-50 rounded-lg">
                   <div className="flex items-center space-x-2 mb-4">
                     <Cloud className="h-5 w-5 text-blue-600" />
-                    <h3 className="font-medium text-gray-900">Cloud Sync</h3>
+                    <h3 className="font-medium text-gray-900">Google Drive Sync</h3>
                     <div className="flex items-center space-x-2">
                       {syncStatus === 'syncing' && (
                         <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div>
@@ -1855,17 +3010,33 @@ const Settings: React.FC = () => {
                       )}
                     </div>
                   </div>
+                  
+                  {!isGoogleAuthenticated ? (
+                    <>
                   <p className="text-sm text-gray-600 mb-4">
-                    Sync your data to the cloud for automatic backup and access from anywhere.
+                        Connect your Google Drive account to automatically sync your data backup as an Excel file.
+                      </p>
+                      <button 
+                        onClick={() => loginWithGoogle()}
+                        className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                      >
+                        <Cloud className="h-4 w-4" />
+                        <span>Connect Google Drive</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-gray-600 mb-4">
+                        Your data will be synced to Google Drive as an Excel file. You can view and edit it directly in Drive.
                     {lastBackup && (
                       <span className="block mt-1 text-xs text-gray-500">
                         Last backup: {new Date(lastBackup).toLocaleString()}
                       </span>
                     )}
                   </p>
-                  <div className="flex space-x-4">
+                      <div className="flex flex-wrap gap-4">
                     <button 
-                      onClick={syncToCloud}
+                          onClick={syncToDrive}
                       disabled={isSyncing}
                       className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
                         isSyncing 
@@ -1874,21 +3045,33 @@ const Settings: React.FC = () => {
                       }`}
                     >
                       <Cloud className="h-4 w-4" />
-                      <span>Sync to Cloud</span>
+                          <span>Sync to Drive</span>
                     </button>
                     <button 
-                      onClick={restoreFromCloud}
-                      disabled={isSyncing}
+                          onClick={() => setShowRestoreConfirm(true)}
+                          disabled={isSyncing || !driveFileId}
                       className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
-                        isSyncing 
+                            isSyncing || !driveFileId
                           ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
                           : 'bg-amber-500 text-white hover:bg-amber-600'
                       }`}
                     >
                       <DatabaseIcon className="h-4 w-4" />
-                      <span>Restore from Cloud</span>
+                          <span>Restore from Drive</span>
+                        </button>
+                        <button 
+                          onClick={() => {
+                            clearAuth();
+                            success('Disconnected from Google Drive');
+                          }}
+                          className="flex items-center space-x-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                        >
+                          <XCircle className="h-4 w-4" />
+                          <span>Disconnect</span>
                     </button>
                   </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Backup & Export Section */}
@@ -2068,6 +3251,42 @@ const Settings: React.FC = () => {
                         <FileSpreadsheet className="h-4 w-4" />
                         <span>Import Customers (Excel)</span>
                       </button>
+                      <button 
+                        onClick={() => handleFileImport('invoices')}
+                        disabled={isImporting}
+                        className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                          isImporting 
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                            : 'bg-green-500 text-white hover:bg-green-600'
+                        }`}
+                      >
+                        <FileSpreadsheet className="h-4 w-4" />
+                        <span>Import Invoices (Excel)</span>
+                      </button>
+                      <button 
+                        onClick={() => handleFileImport('bills')}
+                        disabled={isImporting}
+                        className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                          isImporting 
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                            : 'bg-green-500 text-white hover:bg-green-600'
+                        }`}
+                      >
+                        <FileSpreadsheet className="h-4 w-4" />
+                        <span>Import Bills (Excel)</span>
+                      </button>
+                      <button 
+                        onClick={() => handleFileImport('exchangeBills')}
+                        disabled={isImporting}
+                        className={`flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                          isImporting 
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                            : 'bg-green-500 text-white hover:bg-green-600'
+                        }`}
+                      >
+                        <FileSpreadsheet className="h-4 w-4" />
+                        <span>Import Exchange Bills (Excel)</span>
+                      </button>
                     </div>
                   </div>
 
@@ -2151,7 +3370,7 @@ const Settings: React.FC = () => {
                     {t('settings.irreversibleActions')}
                   </p>
                   <button 
-                    onClick={clearAllData}
+                    onClick={() => setShowClearConfirm(true)}
                     className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -2163,6 +3382,84 @@ const Settings: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Restore from Drive confirmation modal */}
+      {showRestoreConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center space-x-2 mb-4">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              <h3 className="text-lg font-semibold text-gray-900">
+                Restore data from Google Drive?
+              </h3>
+            </div>
+            <p className="text-sm text-gray-700 mb-4">
+              This will replace your current products, customers, invoices, and bills with the data
+              from your latest backup in Google Drive. This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setShowRestoreConfirm(false)}
+                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowRestoreConfirm(false);
+                  await restoreFromDrive();
+                }}
+                className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+              >
+                Yes, restore data
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear all data confirmation modal */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center space-x-2 mb-4">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              <h3 className="text-lg font-semibold text-gray-900">
+                Clear all data?
+              </h3>
+            </div>
+            <p className="text-sm text-gray-700 mb-2">
+              This will permanently delete <strong>all</strong> products, customers, invoices, and
+              bills from this system.
+            </p>
+            <p className="text-sm text-red-600 mb-4 font-medium">
+              This action cannot be undone. Make sure you have exported or backed up your data
+              before continuing.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(false)}
+                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowClearConfirm(false);
+                  await clearAllData();
+                }}
+                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
+              >
+                Yes, delete everything
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

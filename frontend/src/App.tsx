@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { AuthProvider } from './contexts/AuthContext';
@@ -10,8 +11,11 @@ import Inventory from './components/Inventory';
 import Billing from './components/Billing';
 import Settings from './components/Settings';
 
+const GOOGLE_CLIENT_ID = '296719475462-h4avdp1qknq5p8saig969ilt1mih0do4.apps.googleusercontent.com';
+
 function App() {
   return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
     <LanguageProvider>
       <ToastProvider>
         <AuthProvider>
@@ -39,6 +43,7 @@ function App() {
         </AuthProvider>
       </ToastProvider>
     </LanguageProvider>
+    </GoogleOAuthProvider>
   );
 }
 

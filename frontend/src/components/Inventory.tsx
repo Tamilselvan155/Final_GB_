@@ -534,6 +534,9 @@ const Inventory: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [cascadeDeleteInfo, setCascadeDeleteInfo] = useState<{ product: Product; message: string } | null>(null);
 
   // Build categories list including custom categories
   const baseCategories = ['Chains', 'Rings', 'Earrings', 'Bracelets', 'Necklaces', 'Bangles'];
@@ -586,17 +589,25 @@ const Inventory: React.FC = () => {
       error(t('inventory.cannotDeleteInUse'));
       return;
     }
+    
+    // Open confirmation modal instead of browser confirm
+    setCategoryToDelete(category);
+  };
 
-    if (window.confirm(t('inventory.confirmDeleteCategory', { category }))) {
-      const updated = customCategories.filter(cat => cat !== category);
-      saveCustomCategories(updated);
-      success(t('inventory.categoryDeletedSuccess'));
-      
-      // If the deleted category was selected, reset to default
-      if (selectedCategory === category) {
-        setSelectedCategory('all');
-      }
+  const confirmDeleteCategory = () => {
+    if (!categoryToDelete) return;
+    
+    const category = categoryToDelete;
+    const updated = customCategories.filter(cat => cat !== category);
+    saveCustomCategories(updated);
+    success(t('inventory.categoryDeletedSuccess'));
+    
+    // If the deleted category was selected, reset to default
+    if (selectedCategory === category) {
+      setSelectedCategory('all');
     }
+    
+    setCategoryToDelete(null);
   };
 
   useEffect(() => {
@@ -679,37 +690,54 @@ const Inventory: React.FC = () => {
     }
   };
 
-  const handleDeleteProduct = async (id: string) => {
-    if (window.confirm(t('inventory.confirmDelete'))) {
-      try {
-        const db = Database.getInstance();
-        await db.delete('products', id);
-        setProducts(products.filter(p => p.id !== id));
-        success(t('inventory.productDeleteSuccess'));
-      } catch (err: any) {
-        console.error('Error deleting product:', err);
-        if (err.response?.status === 400 && err.response?.data?.references) {
-          const references = err.response.data.references;
-          const message = t('inventory.deleteReferencesMessage', {
-            bills: references.bills,
-            invoices: references.invoices
-          });
+  const handleDeleteProduct = (id: string) => {
+    const product = products.find(p => p.id === id);
+    if (!product) return;
+    // Open confirmation modal instead of browser confirm
+    setProductToDelete(product);
+  };
 
-          if (window.confirm(message)) {
-            try {
-              const dbInstance = Database.getInstance();
-              await dbInstance.deleteWithCascade('products', id);
-              setProducts(products.filter(p => p.id !== id));
-              success(t('inventory.productDeleteCascadeSuccess'));
-            } catch (cascadeErr: unknown) {
-              console.error('Error in cascade delete:', cascadeErr);
-              error(t('inventory.productDeleteCascadeError'));
-            }
-          }
-        } else {
-          error(t('inventory.productDeleteError'));
-        }
+  const confirmDeleteProduct = async () => {
+    if (!productToDelete) return;
+
+    try {
+      const db = Database.getInstance();
+      await db.delete('products', productToDelete.id);
+      setProducts(products.filter(p => p.id !== productToDelete.id));
+      success(t('inventory.productDeleteSuccess'));
+      setProductToDelete(null);
+    } catch (err: any) {
+      console.error('Error deleting product:', err);
+      if (err.response?.status === 400 && err.response?.data?.references) {
+        const references = err.response.data.references;
+        const message = t('inventory.deleteReferencesMessage', {
+          bills: references.bills,
+          invoices: references.invoices
+        });
+        // Open cascade confirmation modal
+        setCascadeDeleteInfo({ product: productToDelete, message });
+        setProductToDelete(null);
+      } else {
+        error(t('inventory.productDeleteError'));
+        setProductToDelete(null);
       }
+    }
+  };
+
+  const confirmCascadeDeleteProduct = async () => {
+    if (!cascadeDeleteInfo) return;
+    const { product } = cascadeDeleteInfo;
+
+    try {
+      const dbInstance = Database.getInstance();
+      await dbInstance.deleteWithCascade('products', product.id);
+      setProducts(products.filter(p => p.id !== product.id));
+      success(t('inventory.productDeleteCascadeSuccess'));
+    } catch (cascadeErr: unknown) {
+      console.error('Error in cascade delete:', cascadeErr);
+      error(t('inventory.productDeleteCascadeError'));
+    } finally {
+      setCascadeDeleteInfo(null);
     }
   };
 
@@ -943,7 +971,7 @@ const Inventory: React.FC = () => {
         />
       )}
 
-    {viewingProduct && createPortal(
+      {viewingProduct && createPortal(
       <div className="fixed top-0 left-0 right-0 bottom-0 w-screen h-screen bg-black bg-opacity-50 flex items-center justify-center p-4 z-[9999] m-0" style={{ margin: 0 }}>
         <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
           {/* Header Section */}
@@ -1014,13 +1042,13 @@ const Inventory: React.FC = () => {
                     {t('inventory.targetGroup')}
                   </label>
                   <div className="mt-1">
-                    {viewingProduct.product_category ? (
+                  {viewingProduct.product_category ? (
                       <span className="inline-block px-2.5 py-1 text-sm font-medium rounded border border-gray-200 bg-gray-50 text-gray-900">
-                        {productCategoryLabels[viewingProduct.product_category] || viewingProduct.product_category}
-                      </span>
-                    ) : (
+                      {productCategoryLabels[viewingProduct.product_category] || viewingProduct.product_category}
+                    </span>
+                  ) : (
                       <span className="text-sm text-gray-400 italic">{t('inventory.notSpecified')}</span>
-                    )}
+                  )}
                   </div>
                 </div>
               </div>
@@ -1123,6 +1151,105 @@ const Inventory: React.FC = () => {
       </div>,
       document.body
     )}
+
+      {/* Delete product confirmation modal */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center space-x-2 mb-4">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              <h3 className="text-lg font-semibold text-gray-900">
+                {t('inventory.confirmDelete')}
+              </h3>
+            </div>
+            <p className="text-sm text-gray-700 mb-4">
+              {t('inventory.confirmDeleteCategory', { category: productToDelete.name || '' })}
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setProductToDelete(null)}
+                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteProduct}
+                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
+              >
+                {t('common.delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cascade delete confirmation modal */}
+      {cascadeDeleteInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center space-x-2 mb-4">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              <h3 className="text-lg font-semibold text-gray-900">
+                {t('inventory.productHasReferences')}
+              </h3>
+            </div>
+            <p className="text-sm text-gray-700 mb-4">
+              {cascadeDeleteInfo.message}
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setCascadeDeleteInfo(null)}
+                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={confirmCascadeDeleteProduct}
+                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
+              >
+                {t('inventory.deleteWithReferences')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete category confirmation modal */}
+      {categoryToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center space-x-2 mb-4">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              <h3 className="text-lg font-semibold text-gray-900">
+                {t('inventory.confirmDeleteCategoryTitle')}
+              </h3>
+            </div>
+            <p className="text-sm text-gray-700 mb-4">
+              {t('inventory.confirmDeleteCategory', { category: categoryToDelete })}
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setCategoryToDelete(null)}
+                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteCategory}
+                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
+              >
+                {t('common.delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

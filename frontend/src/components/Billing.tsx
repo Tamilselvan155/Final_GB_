@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Plus,
   Search,
@@ -17,7 +17,8 @@ import {
   Hash,
   Wrench,
   Calculator,
-  Settings
+  Settings,
+  Printer
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import Database from '../utils/database';
@@ -50,9 +51,9 @@ const Billing: React.FC = () => {
   const [exchangeBills, setExchangeBills] = useState<Bill[]>([]);
   const [activeTab, setActiveTab] = useState<'billing' | 'invoice' | 'exchange'>('invoice');
   
-  const handleWheel = (event: React.WheelEvent<HTMLInputElement>) => {
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLInputElement>) => {
     event.currentTarget.blur();
-  };
+  }, []);
   
   // Barcode scanner states
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -75,19 +76,8 @@ const Billing: React.FC = () => {
     exchangeItems: [] as InvoiceItem[],
   });
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
-    calculateTotals();
-  }, [currentBill.items, currentBill.tax_percentage, currentBill.discount_amount]);
-
-  useEffect(() => {
-    calculateExchangeTotals();
-  }, [exchangeMaterial.oldMaterialWeight, exchangeMaterial.oldMaterialRate, exchangeMaterial.exchangeRate, exchangeMaterial.exchangeItems]);
-
-  const loadData = async () => {
+  // Memoized functions - declared before useEffect hooks
+  const loadData = useCallback(async () => {
     try {
       const db = Database.getInstance();
       const [productData, customerData, billData, invoiceData] = await Promise.all([
@@ -114,9 +104,9 @@ const Billing: React.FC = () => {
       console.error('Error loading data:', err);
       error(t('billing.loadDataError'));
     }
-  };
+  }, [error, t]);
 
-  const calculateTotals = () => {
+  const calculateTotals = useCallback(() => {
     const items = currentBill.items || [];
     const subtotal = items.reduce((sum, item) => sum + item.total, 0);
     
@@ -125,29 +115,56 @@ const Billing: React.FC = () => {
     const taxAmount = (discountedSubtotal * (currentBill.tax_percentage || 0)) / 100;
     const totalAmount = discountedSubtotal + taxAmount;
 
-    setCurrentBill(prev => ({
-      ...prev,
-      subtotal,
-      tax_amount: taxAmount,
-      total_amount: totalAmount,
-    }));
-  };
+    setCurrentBill(prev => {
+      // Only update if values actually changed to prevent unnecessary re-renders
+      if (prev.subtotal === subtotal && prev.tax_amount === taxAmount && prev.total_amount === totalAmount) {
+        return prev;
+      }
+      return {
+        ...prev,
+        subtotal,
+        tax_amount: taxAmount,
+        total_amount: totalAmount,
+      };
+    });
+  }, [currentBill.items, currentBill.discount_amount, currentBill.tax_percentage]);
 
-  const calculateExchangeTotals = () => {
+  const calculateExchangeTotals = useCallback(() => {
     const oldMaterialValue = exchangeMaterial.oldMaterialWeight * exchangeMaterial.oldMaterialRate;
     const exchangeItemsTotal = exchangeMaterial.exchangeItems.reduce((sum, item) => sum + item.total, 0);
     const difference = exchangeItemsTotal - oldMaterialValue;
 
-    setExchangeMaterial(prev => ({
-      ...prev,
-      oldMaterialValue,
-      exchangeValue: exchangeItemsTotal,
-      difference,
-    }));
-  };
+    setExchangeMaterial(prev => {
+      // Only update if values actually changed to prevent unnecessary re-renders
+      if (prev.oldMaterialValue === oldMaterialValue && 
+          prev.exchangeValue === exchangeItemsTotal && 
+          prev.difference === difference) {
+        return prev;
+      }
+      return {
+        ...prev,
+        oldMaterialValue,
+        exchangeValue: exchangeItemsTotal,
+        difference,
+      };
+    });
+  }, [exchangeMaterial.oldMaterialWeight, exchangeMaterial.oldMaterialRate, exchangeMaterial.exchangeItems]);
 
-  // Get purity options based on material type
-  const getPurityOptions = (materialType: string) => {
+  // useEffect hooks - placed after function declarations
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    calculateTotals();
+  }, [calculateTotals]);
+
+  useEffect(() => {
+    calculateExchangeTotals();
+  }, [calculateExchangeTotals]);
+
+  // Get purity options based on material type - memoized
+  const getPurityOptions = useCallback((materialType: string) => {
     switch (materialType) {
       case 'Gold':
         return ['24K', '22K', '18K', '14K'];
@@ -160,171 +177,184 @@ const Billing: React.FC = () => {
       default:
         return ['24K', '22K', '18K', '14K', '999', '925', 'Other'];
     }
-  };
+  }, []);
 
-  const addProductToBill = (product: Product) => {
-    const existingItemIndex = (currentBill.items || []).findIndex(
-      item => item.product_id === product.id
-    );
+  const addProductToBill = useCallback((product: Product) => {
+    setCurrentBill(prev => {
+      const items = prev.items || [];
+      const existingItemIndex = items.findIndex(
+        item => item.product_id === product.id
+      );
 
-    if (existingItemIndex >= 0) {
-      const updatedItems = [...(currentBill.items || [])];
-      updatedItems[existingItemIndex].quantity += 1;
-      updatedItems[existingItemIndex].total = 
-        (updatedItems[existingItemIndex].weight * updatedItems[existingItemIndex].rate + 
-         updatedItems[existingItemIndex].making_charge + 
-         (updatedItems[existingItemIndex].wastage_charge || 0)) * updatedItems[existingItemIndex].quantity;
-      
-      setCurrentBill(prev => ({ ...prev, items: updatedItems }));
-    } else {
-      const newItem: InvoiceItem = {
-        id: Date.now().toString(),
-        product_id: product.id,
-        product_name: product.name,
-        weight: product.weight,
-        rate: 0, // Start with 0, user will enter in billing
-        making_charge: 0, // Start with 0, user will enter in billing
-        wastage_charge: 0,
-        quantity: 1,
-        total: 0, // Will be calculated when user enters rate
-      };
-
-      setCurrentBill(prev => ({
-        ...prev,
-        items: [...(prev.items || []), newItem],
-      }));
-    }
-  };
-
-  const updateBillItem = (itemId: string, updates: Partial<InvoiceItem>) => {
-    const updatedItems = (currentBill.items || []).map(item => {
-      if (item.id === itemId) {
-        const updatedItem = { ...item, ...updates };
+      if (existingItemIndex >= 0) {
+        const updatedItems = [...items];
+        updatedItems[existingItemIndex].quantity += 1;
+        updatedItems[existingItemIndex].total = 
+          (updatedItems[existingItemIndex].weight * updatedItems[existingItemIndex].rate + 
+           updatedItems[existingItemIndex].making_charge + 
+           (updatedItems[existingItemIndex].wastage_charge || 0)) * updatedItems[existingItemIndex].quantity;
         
-        // Validate numeric inputs
-        if (updates.weight !== undefined && (isNaN(updates.weight) || updates.weight <= 0)) {
-          return item;
-        }
-        if (updates.rate !== undefined && (isNaN(updates.rate) || updates.rate <= 0)) {
-          return item;
-        }
-        if (updates.quantity !== undefined && (isNaN(updates.quantity) || updates.quantity <= 0)) {
-          return item;
-        }
-        if (updates.making_charge !== undefined && (isNaN(updates.making_charge) || updates.making_charge < 0)) {
-          return item;
-        }
-        if (updates.wastage_charge !== undefined && (isNaN(updates.wastage_charge) || updates.wastage_charge < 0)) {
-          return item;
-        }
-        
-        updatedItem.total = (updatedItem.weight * updatedItem.rate + updatedItem.making_charge + (updatedItem.wastage_charge || 0)) * updatedItem.quantity;
-        return updatedItem;
+        return { ...prev, items: updatedItems };
+      } else {
+        const newItem: InvoiceItem = {
+          id: Date.now().toString(),
+          product_id: product.id,
+          product_name: product.name,
+          weight: product.weight,
+          rate: 0, // Start with 0, user will enter in billing
+          making_charge: 0, // Start with 0, user will enter in billing
+          wastage_charge: 0,
+          quantity: 1,
+          total: 0, // Will be calculated when user enters rate
+        };
+
+        return {
+          ...prev,
+          items: [...items, newItem],
+        };
       }
-      return item;
     });
+  }, []);
 
-    setCurrentBill(prev => ({ ...prev, items: updatedItems }));
-  };
+  const updateBillItem = useCallback((itemId: string, updates: Partial<InvoiceItem>) => {
+    setCurrentBill(prev => {
+      const items = prev.items || [];
+      const updatedItems = items.map(item => {
+        if (item.id === itemId) {
+          const updatedItem = { ...item, ...updates };
+          
+          // Validate numeric inputs
+          if (updates.weight !== undefined && (isNaN(updates.weight) || updates.weight <= 0)) {
+            return item;
+          }
+          if (updates.rate !== undefined && (isNaN(updates.rate) || updates.rate <= 0)) {
+            return item;
+          }
+          if (updates.quantity !== undefined && (isNaN(updates.quantity) || updates.quantity <= 0)) {
+            return item;
+          }
+          if (updates.making_charge !== undefined && (isNaN(updates.making_charge) || updates.making_charge < 0)) {
+            return item;
+          }
+          if (updates.wastage_charge !== undefined && (isNaN(updates.wastage_charge) || updates.wastage_charge < 0)) {
+            return item;
+          }
+          
+          updatedItem.total = (updatedItem.weight * updatedItem.rate + updatedItem.making_charge + (updatedItem.wastage_charge || 0)) * updatedItem.quantity;
+          return updatedItem;
+        }
+        return item;
+      });
 
-  const removeBillItem = (itemId: string) => {
+      return { ...prev, items: updatedItems };
+    });
+  }, []);
+
+  const removeBillItem = useCallback((itemId: string) => {
     setCurrentBill(prev => ({
       ...prev,
       items: (prev.items || []).filter(item => item.id !== itemId),
     }));
-  };
+  }, []);
 
   // Exchange material functions
-  const addProductToExchange = (product: Product) => {
-    const existingItemIndex = exchangeMaterial.exchangeItems.findIndex(
-      item => item.product_id === product.id
-    );
+  const addProductToExchange = useCallback((product: Product) => {
+    setExchangeMaterial(prev => {
+      const exchangeItems = prev.exchangeItems;
+      const existingItemIndex = exchangeItems.findIndex(
+        item => item.product_id === product.id
+      );
 
-    if (existingItemIndex >= 0) {
-      const updatedItems = [...exchangeMaterial.exchangeItems];
-      updatedItems[existingItemIndex].quantity += 1;
-      updatedItems[existingItemIndex].total = 
-        (updatedItems[existingItemIndex].weight * updatedItems[existingItemIndex].rate + 
-         updatedItems[existingItemIndex].making_charge + 
-         (updatedItems[existingItemIndex].wastage_charge || 0)) * updatedItems[existingItemIndex].quantity;
-      
-      setExchangeMaterial(prev => ({ ...prev, exchangeItems: updatedItems }));
-    } else {
-      const newItem: InvoiceItem = {
-        id: Date.now().toString(),
-        product_id: product.id,
-        product_name: product.name,
-        weight: product.weight,
-        rate: 0, // Start with 0, user will enter in billing
-        making_charge: 0, // Start with 0, user will enter in billing
-        wastage_charge: 0,
-        quantity: 1,
-        total: 0, // Will be calculated when user enters rate
-      };
-
-      setExchangeMaterial(prev => ({
-        ...prev,
-        exchangeItems: [...prev.exchangeItems, newItem],
-      }));
-    }
-  };
-
-  const updateExchangeItem = (itemId: string, updates: Partial<InvoiceItem>) => {
-    const updatedItems = exchangeMaterial.exchangeItems.map(item => {
-      if (item.id === itemId) {
-        const updatedItem = { ...item, ...updates };
+      if (existingItemIndex >= 0) {
+        const updatedItems = [...exchangeItems];
+        updatedItems[existingItemIndex].quantity += 1;
+        updatedItems[existingItemIndex].total = 
+          (updatedItems[existingItemIndex].weight * updatedItems[existingItemIndex].rate + 
+           updatedItems[existingItemIndex].making_charge + 
+           (updatedItems[existingItemIndex].wastage_charge || 0)) * updatedItems[existingItemIndex].quantity;
         
-        // Validate numeric inputs
-        if (updates.weight !== undefined && (isNaN(updates.weight) || updates.weight <= 0)) {
-          return item;
-        }
-        if (updates.rate !== undefined && (isNaN(updates.rate) || updates.rate <= 0)) {
-          return item;
-        }
-        if (updates.quantity !== undefined && (isNaN(updates.quantity) || updates.quantity <= 0)) {
-          return item;
-        }
-        if (updates.making_charge !== undefined && (isNaN(updates.making_charge) || updates.making_charge < 0)) {
-          return item;
-        }
-        if (updates.wastage_charge !== undefined && (isNaN(updates.wastage_charge) || updates.wastage_charge < 0)) {
-          return item;
-        }
-        
-        updatedItem.total = (updatedItem.weight * updatedItem.rate + updatedItem.making_charge + (updatedItem.wastage_charge || 0)) * updatedItem.quantity;
-        return updatedItem;
+        return { ...prev, exchangeItems: updatedItems };
+      } else {
+        const newItem: InvoiceItem = {
+          id: Date.now().toString(),
+          product_id: product.id,
+          product_name: product.name,
+          weight: product.weight,
+          rate: 0, // Start with 0, user will enter in billing
+          making_charge: 0, // Start with 0, user will enter in billing
+          wastage_charge: 0,
+          quantity: 1,
+          total: 0, // Will be calculated when user enters rate
+        };
+
+        return {
+          ...prev,
+          exchangeItems: [...exchangeItems, newItem],
+        };
       }
-      return item;
     });
+  }, []);
 
-    setExchangeMaterial(prev => ({ ...prev, exchangeItems: updatedItems }));
-  };
+  const updateExchangeItem = useCallback((itemId: string, updates: Partial<InvoiceItem>) => {
+    setExchangeMaterial(prev => {
+      const exchangeItems = prev.exchangeItems;
+      const updatedItems = exchangeItems.map(item => {
+        if (item.id === itemId) {
+          const updatedItem = { ...item, ...updates };
+          
+          // Validate numeric inputs
+          if (updates.weight !== undefined && (isNaN(updates.weight) || updates.weight <= 0)) {
+            return item;
+          }
+          if (updates.rate !== undefined && (isNaN(updates.rate) || updates.rate <= 0)) {
+            return item;
+          }
+          if (updates.quantity !== undefined && (isNaN(updates.quantity) || updates.quantity <= 0)) {
+            return item;
+          }
+          if (updates.making_charge !== undefined && (isNaN(updates.making_charge) || updates.making_charge < 0)) {
+            return item;
+          }
+          if (updates.wastage_charge !== undefined && (isNaN(updates.wastage_charge) || updates.wastage_charge < 0)) {
+            return item;
+          }
+          
+          updatedItem.total = (updatedItem.weight * updatedItem.rate + updatedItem.making_charge + (updatedItem.wastage_charge || 0)) * updatedItem.quantity;
+          return updatedItem;
+        }
+        return item;
+      });
 
-  const removeExchangeItem = (itemId: string) => {
+      return { ...prev, exchangeItems: updatedItems };
+    });
+  }, []);
+
+  const removeExchangeItem = useCallback((itemId: string) => {
     setExchangeMaterial(prev => ({
       ...prev,
       exchangeItems: prev.exchangeItems.filter(item => item.id !== itemId),
     }));
-  };
+  }, []);
 
   // Barcode scanner functions
   // This implementation handles both dedicated barcode scanner hardware and manual input
   // Barcode scanners typically send input as rapid keyboard events, which this handles
   // with a timeout-based approach to distinguish between scanner and manual input
   
-  const validateBarcode = (barcode: string): boolean => {
+  const validateBarcode = useCallback((barcode: string): boolean => {
     // Basic barcode validation - can be enhanced based on barcode types
     if (!barcode || barcode.length < 3) return false;
     
     // Check if barcode contains only alphanumeric characters and common barcode characters
     const barcodeRegex = /^[A-Za-z0-9\-_]+$/;
     return barcodeRegex.test(barcode);
-  };
+  }, []);
 
-  const findProductByBarcode = async (barcode: string): Promise<Product | null> => {
+  const findProductByBarcode = useCallback(async (barcode: string): Promise<Product | null> => {
     // Check cache first
-    if (barcodeCache.has(barcode)) {
-      return barcodeCache.get(barcode) || null;
+    const cached = barcodeCache.get(barcode);
+    if (cached) {
+      return cached;
     }
 
     // Search in products array
@@ -336,25 +366,9 @@ const Billing: React.FC = () => {
     }
 
     return null;
-  };
+  }, [products, barcodeCache]);
 
-  const handleBarcodeInput = async (value: string) => {
-    setBarcodeInput(value);
-    
-    // Clear existing timeout
-    if (barcodeTimeoutRef.current) {
-      clearTimeout(barcodeTimeoutRef.current);
-    }
-
-    // Set a timeout to process barcode after user stops typing (typical barcode scanner behavior)
-    barcodeTimeoutRef.current = setTimeout(async () => {
-      if (value.trim()) {
-        await processBarcode(value.trim());
-      }
-    }, 100); // 100ms delay to handle rapid barcode scanner input
-  };
-
-  const processBarcode = async (barcode: string) => {
+  const processBarcode = useCallback(async (barcode: string) => {
     if (!validateBarcode(barcode)) {
       error(t('billing.invalidBarcode'));
       setBarcodeInput('');
@@ -413,15 +427,31 @@ const Billing: React.FC = () => {
     } finally {
       setIsScanning(false);
     }
-  };
+  }, [validateBarcode, findProductByBarcode, activeTab, addProductToExchange, addProductToBill, error, success, t]);
 
-  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleBarcodeInput = useCallback(async (value: string) => {
+    setBarcodeInput(value);
+    
+    // Clear existing timeout
+    if (barcodeTimeoutRef.current) {
+      clearTimeout(barcodeTimeoutRef.current);
+    }
+
+    // Set a timeout to process barcode after user stops typing (typical barcode scanner behavior)
+    barcodeTimeoutRef.current = setTimeout(async () => {
+      if (value.trim()) {
+        await processBarcode(value.trim());
+      }
+    }, 100); // 100ms delay to handle rapid barcode scanner input
+  }, [processBarcode]);
+
+  const handleBarcodeKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     // Handle Enter key for manual barcode entry
     if (e.key === 'Enter' && barcodeInput.trim()) {
       e.preventDefault();
       processBarcode(barcodeInput.trim());
     }
-  };
+  }, [barcodeInput, processBarcode]);
 
   // Focus barcode input on component mount
   useEffect(() => {
@@ -882,10 +912,15 @@ const Billing: React.FC = () => {
     );
   };
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.sku.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Memoize filtered products to avoid recalculating on every render
+  const filteredProducts = useMemo(() => {
+    if (!searchTerm.trim()) return products;
+    const lowerSearchTerm = searchTerm.toLowerCase();
+    return products.filter(product =>
+      product.name.toLowerCase().includes(lowerSearchTerm) ||
+      product.sku.toLowerCase().includes(lowerSearchTerm)
+    );
+  }, [products, searchTerm]);
 
   const generateBillPDF = (bill: Bill) => {
     try {
@@ -1368,6 +1403,495 @@ const Billing: React.FC = () => {
     }
   };
 
+  // Helper function to print PDF
+  const printPDF = (doc: jsPDF) => {
+    try {
+      const pdfBlob = doc.output('blob');
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      const printWindow = window.open(pdfUrl, '_blank');
+      
+      if (printWindow) {
+        // Use a more reliable approach for triggering print
+        const checkPrint = setInterval(() => {
+          try {
+            if (printWindow.document.readyState === 'complete') {
+              clearInterval(checkPrint);
+              setTimeout(() => {
+                printWindow.print();
+                // Clean up the URL after a delay (but don't close the window)
+                setTimeout(() => {
+                  URL.revokeObjectURL(pdfUrl);
+                }, 1000);
+              }, 500);
+            }
+          } catch (e) {
+            // If we can't access the window, try printing anyway
+            clearInterval(checkPrint);
+            setTimeout(() => {
+              printWindow.print();
+              setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
+            }, 500);
+          }
+        }, 100);
+
+        // Fallback timeout
+        setTimeout(() => {
+          clearInterval(checkPrint);
+          try {
+            printWindow.print();
+            setTimeout(() => {
+              URL.revokeObjectURL(pdfUrl);
+            }, 1000);
+          } catch (e) {
+            URL.revokeObjectURL(pdfUrl);
+          }
+        }, 3000);
+      } else {
+        error('Please allow popups to print the document');
+        URL.revokeObjectURL(pdfUrl);
+      }
+    } catch (err) {
+      console.error('Error printing PDF:', err);
+      error('Failed to print PDF. Please try again.');
+    }
+  };
+
+  // Print Bill PDF function
+  const printBillPDF = (bill: Bill) => {
+    try {
+      if (!bill) {
+        error('Invalid bill data');
+        return;
+      }
+
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 20;
+      let yPosition = 25;
+
+      // Add gold/brown border strips (exact template colors)
+      doc.setFillColor(218, 165, 32); // Gold color for borders
+      doc.rect(0, 0, 10, pageHeight, 'F'); // Left border
+      doc.rect(pageWidth - 10, 0, 10, pageHeight, 'F'); // Right border
+      doc.rect(0, 0, pageWidth, 10, 'F'); // Top border
+      doc.rect(0, pageHeight - 10, pageWidth, 10, 'F'); // Bottom border
+
+      // Header with Tamil text (exact template text)
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ஸ்ரீ காத்தாயி அம்மன் துணை', pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += 8;
+      doc.text('வர்ணமிகு நகைகளுக்கு', pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += 15;
+
+      // Left side business details (exact template layout)
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      
+      // B15 Logo placeholder (blue triangle)
+      doc.setFillColor(0, 0, 255); // Blue color
+      doc.rect(margin, yPosition, 8, 8, 'F');
+      doc.setFillColor(255, 255, 255); // White text
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'bold');
+      doc.text('B15', margin + 2, yPosition + 6);
+      
+      // Reset font
+      doc.setFillColor(0, 0, 0); // Black text
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      
+      doc.text('GSTIN: 33DIZPK7238G1ZP', margin, yPosition + 12);
+      doc.text('Mobile: 98432 95615', margin, yPosition + 20);
+      doc.text('Address: அகரம் சீகூர்', margin, yPosition + 28);
+      doc.text('(பார்டர்) - 621 108.', margin, yPosition + 36);
+      doc.text('பெரம்பலூர் Dt.', margin, yPosition + 44);
+
+      // Right side branding (exact template layout)
+      const logoX = pageWidth - margin - 25;
+      doc.setFillColor(255, 255, 0); // Yellow outer ring
+      doc.circle(logoX, yPosition + 10, 8, 'F');
+      doc.setFillColor(255, 0, 0); // Red inner circle
+      doc.circle(logoX, yPosition + 10, 6, 'F');
+      doc.setFillColor(255, 255, 255); // White text
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'bold');
+      doc.text('VKV', logoX - 2, yPosition + 12);
+      
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'normal');
+      doc.text('நம்பிக்கை', logoX - 4, yPosition + 18);
+      doc.text('தரம்', logoX - 2, yPosition + 24);
+      
+      doc.setFillColor(0, 0, 0); // Black text
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ஸ்ரீ வண்ணமயில்', pageWidth - margin, yPosition + 35, { align: 'right' });
+      doc.text('தங்கமாளிகை', pageWidth - margin, yPosition + 45, { align: 'right' });
+      
+      doc.setFillColor(255, 0, 0); // Red text
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
+
+      yPosition += 70;
+
+      // Invoice Details section header
+      doc.setFillColor(240, 240, 240);
+      doc.rect(margin, yPosition, pageWidth - 2 * margin, 15, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
+      yPosition += 20;
+
+      const isExchange = bill.bill_number?.startsWith('EXCH-');
+      const customerBoxHeight = isExchange && (bill as any).old_gold_weight ? 60 : 45;
+      doc.setFillColor(240, 240, 240);
+      doc.rect(margin, yPosition, 120, customerBoxHeight, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Customer Name & address', margin + 5, yPosition + 8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(bill.customer_name || '', margin + 5, yPosition + 18);
+      if (bill.customer_phone) {
+        doc.text(`Phone: ${bill.customer_phone}`, margin + 5, yPosition + 28);
+      }
+      
+      if (isExchange && (bill as any).old_gold_weight) {
+        doc.setFont('helvetica', 'bold');
+        doc.text('Old Gold:', margin + 5, yPosition + 38);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`${(bill as any).old_gold_weight}g (${(bill as any).old_gold_purity || '22K'})`, margin + 5, yPosition + 48);
+        if ((bill as any).exchange_difference !== undefined) {
+          const diff = (bill as any).exchange_difference;
+          doc.setFont('helvetica', 'bold');
+          doc.text(`${diff >= 0 ? 'Pay' : 'Receive'}:`, margin + 5, yPosition + 56);
+          doc.setFont('helvetica', 'normal');
+          doc.text(`₹${Math.abs(diff).toLocaleString()}`, margin + 5, yPosition + 66);
+        }
+      }
+
+      const rightBoxX = pageWidth - margin - 80;
+      const boxWidth = 80;
+      const boxHeight = 12;
+      
+      doc.setFillColor(240, 240, 240);
+      doc.rect(rightBoxX, yPosition, boxWidth, boxHeight, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DATE', rightBoxX + 5, yPosition + 8);
+      doc.setFont('helvetica', 'normal');
+      const billDate = bill.created_at ? new Date(bill.created_at) : new Date();
+      doc.text(billDate.toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
+      
+      doc.setFillColor(240, 240, 240);
+      doc.rect(rightBoxX, yPosition + 15, boxWidth, boxHeight, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Time', rightBoxX + 5, yPosition + 23);
+      doc.setFont('helvetica', 'normal');
+      doc.text(billDate.toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
+      
+      doc.setFillColor(240, 240, 240);
+      doc.rect(rightBoxX, yPosition + 30, boxWidth, boxHeight, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFont('helvetica', 'bold');
+      doc.text('NO', rightBoxX + 5, yPosition + 38);
+      doc.setFont('helvetica', 'normal');
+      doc.text(bill.bill_number || '', rightBoxX + 5, yPosition + 48);
+
+      yPosition += (isExchange && (bill as any).old_gold_weight ? 75 : 60);
+
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(150, 150, 150);
+      for (let i = margin; i < pageWidth - margin; i += 4) {
+        doc.line(i, yPosition, i + 2, yPosition);
+      }
+      yPosition += 15;
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      const colPositions = [margin + 5, margin + 30, margin + 95, margin + 130, margin + 165, margin + 190];
+      
+      doc.text('Qty', colPositions[0], yPosition);
+      doc.text('Description', colPositions[1], yPosition);
+      doc.text('HSN/SAC', colPositions[2], yPosition);
+      doc.text('Rate', colPositions[3], yPosition);
+      doc.text('Gross Wt.', colPositions[4], yPosition);
+      doc.text('Taxable Amount', colPositions[5], yPosition);
+      yPosition += 10;
+
+      doc.setFont('helvetica', 'normal');
+      if (bill.items && Array.isArray(bill.items)) {
+        bill.items.forEach((item: any) => {
+          doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
+          doc.text(item.product_name || 'N/A', colPositions[1], yPosition);
+          doc.text('711319', colPositions[2], yPosition);
+          doc.text(`₹${item.rate?.toLocaleString() || '0'}`, colPositions[3], yPosition);
+          doc.text(item.weight?.toString() || '0', colPositions[4], yPosition);
+          doc.text(`₹${item.total?.toLocaleString() || '0'}`, colPositions[5], yPosition);
+          yPosition += 8;
+        });
+      }
+
+      yPosition += 10;
+
+      for (let i = margin; i < pageWidth - margin; i += 4) {
+        doc.line(i, yPosition, i + 2, yPosition);
+      }
+      yPosition += 15;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text(`Total Qty: ${bill.items?.length || 0}`, margin + 5, yPosition);
+      doc.text(`Total Gross Weight: ${bill.items?.reduce((sum: number, item: any) => sum + (item.weight || 0), 0).toFixed(3) || '0'}`, margin + 5, yPosition + 8);
+      doc.text(`Total Taxable Amount: ₹${bill.subtotal?.toLocaleString() || '0'}`, margin + 5, yPosition + 16);
+      
+      if (bill.discount_amount && bill.discount_amount > 0) {
+        doc.text(`Less Special Discount Rs 50/-PER GMS: ₹${Math.round(bill.discount_amount)}`, margin + 5, yPosition + 24);
+        yPosition += 8;
+      }
+      
+      doc.text(`Net Amount: ₹${bill.total_amount?.toLocaleString() || '0'}`, margin + 5, yPosition + 32);
+
+      const watermarkY = pageHeight - 80;
+      doc.setFillColor(240, 240, 240, 0.3);
+      doc.setFontSize(60);
+      doc.setFont('helvetica', 'bold');
+      doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
+
+      const signatureY = watermarkY + 20;
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(150, 150, 150);
+      doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
+      doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
+
+      const footerY = pageHeight - 25;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setFillColor(0, 0, 0);
+      doc.text('உங்களது வளர்ச்சி!', margin + 5, footerY);
+      doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
+
+      printPDF(doc);
+      success('Bill opened for printing!');
+    } catch (err) {
+      console.error('Error printing bill PDF:', err);
+      error('Failed to print bill PDF. Please try again.');
+    }
+  };
+
+  // Print Invoice PDF function
+  const printInvoicePDF = (invoice: Invoice) => {
+    try {
+      if (!invoice) {
+        error('Invalid invoice data');
+        return;
+      }
+
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 20;
+      let yPosition = 25;
+
+      // Add gold/brown border strips
+      doc.setFillColor(218, 165, 32);
+      doc.rect(0, 0, 10, pageHeight, 'F');
+      doc.rect(pageWidth - 10, 0, 10, pageHeight, 'F');
+      doc.rect(0, 0, pageWidth, 10, 'F');
+      doc.rect(0, pageHeight - 10, pageWidth, 10, 'F');
+
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ஸ்ரீ காத்தாயி அம்மன் துணை', pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += 8;
+      doc.text('வர்ணமிகு நகைகளுக்கு', pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += 15;
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      
+      doc.setFillColor(0, 0, 255);
+      doc.rect(margin, yPosition, 8, 8, 'F');
+      doc.setFillColor(255, 255, 255);
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'bold');
+      doc.text('B15', margin + 2, yPosition + 6);
+      
+      doc.setFillColor(0, 0, 0);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      
+      doc.text('GSTIN: 33DIZPK7238G1ZP', margin, yPosition + 12);
+      doc.text('Mobile: 98432 95615', margin, yPosition + 20);
+      doc.text('Address: அகரம் சீகூர்', margin, yPosition + 28);
+      doc.text('(பார்டர்) - 621 108.', margin, yPosition + 36);
+      doc.text('பெரம்பலூர் Dt.', margin, yPosition + 44);
+
+      const logoX = pageWidth - margin - 25;
+      doc.setFillColor(255, 255, 0);
+      doc.circle(logoX, yPosition + 10, 8, 'F');
+      doc.setFillColor(255, 0, 0);
+      doc.circle(logoX, yPosition + 10, 6, 'F');
+      doc.setFillColor(255, 255, 255);
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'bold');
+      doc.text('VKV', logoX - 2, yPosition + 12);
+      
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'normal');
+      doc.text('நம்பிக்கை', logoX - 4, yPosition + 18);
+      doc.text('தரம்', logoX - 2, yPosition + 24);
+      
+      doc.setFillColor(0, 0, 0);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ஸ்ரீ வண்ணமயில்', pageWidth - margin, yPosition + 35, { align: 'right' });
+      doc.text('தங்கமாளிகை', pageWidth - margin, yPosition + 45, { align: 'right' });
+      
+      doc.setFillColor(255, 0, 0);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
+
+      yPosition += 70;
+
+      doc.setFillColor(240, 240, 240);
+      doc.rect(margin, yPosition, pageWidth - 2 * margin, 15, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
+      yPosition += 20;
+
+      doc.setFillColor(240, 240, 240);
+      doc.rect(margin, yPosition, 120, 45, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Customer Name & address', margin + 5, yPosition + 8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(invoice.customer_name || '', margin + 5, yPosition + 18);
+      if (invoice.customer_phone) {
+        doc.text(`Phone: ${invoice.customer_phone}`, margin + 5, yPosition + 28);
+      }
+
+      const rightBoxX = pageWidth - margin - 80;
+      const boxWidth = 80;
+      const boxHeight = 12;
+      
+      doc.setFillColor(240, 240, 240);
+      doc.rect(rightBoxX, yPosition, boxWidth, boxHeight, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DATE', rightBoxX + 5, yPosition + 8);
+      doc.setFont('helvetica', 'normal');
+      const invoiceDate = invoice.created_at ? new Date(invoice.created_at) : new Date();
+      doc.text(invoiceDate.toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
+      
+      doc.setFillColor(240, 240, 240);
+      doc.rect(rightBoxX, yPosition + 15, boxWidth, boxHeight, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Time', rightBoxX + 5, yPosition + 23);
+      doc.setFont('helvetica', 'normal');
+      doc.text(invoiceDate.toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
+      
+      doc.setFillColor(240, 240, 240);
+      doc.rect(rightBoxX, yPosition + 30, boxWidth, boxHeight, 'F');
+      doc.setFillColor(0, 0, 0);
+      doc.setFont('helvetica', 'bold');
+      doc.text('NO', rightBoxX + 5, yPosition + 38);
+      doc.setFont('helvetica', 'normal');
+      doc.text(invoice.invoice_number || '', rightBoxX + 5, yPosition + 48);
+
+      yPosition += 60;
+
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(150, 150, 150);
+      for (let i = margin; i < pageWidth - margin; i += 4) {
+        doc.line(i, yPosition, i + 2, yPosition);
+      }
+      yPosition += 15;
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      const colPositions = [margin + 5, margin + 30, margin + 95, margin + 130, margin + 165, margin + 190];
+      
+      doc.text('Qty', colPositions[0], yPosition);
+      doc.text('Description', colPositions[1], yPosition);
+      doc.text('HSN/SAC', colPositions[2], yPosition);
+      doc.text('Rate', colPositions[3], yPosition);
+      doc.text('Gross Wt.', colPositions[4], yPosition);
+      doc.text('Taxable Amount', colPositions[5], yPosition);
+      yPosition += 10;
+
+      doc.setFont('helvetica', 'normal');
+      if (invoice.items && Array.isArray(invoice.items)) {
+        invoice.items.forEach((item: any) => {
+          doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
+          doc.text(item.product_name || 'N/A', colPositions[1], yPosition);
+          doc.text('711319', colPositions[2], yPosition);
+          doc.text(`₹${item.rate?.toLocaleString() || '0'}`, colPositions[3], yPosition);
+          doc.text(item.weight?.toString() || '0', colPositions[4], yPosition);
+          doc.text(`₹${item.total?.toLocaleString() || '0'}`, colPositions[5], yPosition);
+          yPosition += 8;
+        });
+      }
+
+      yPosition += 10;
+
+      for (let i = margin; i < pageWidth - margin; i += 4) {
+        doc.line(i, yPosition, i + 2, yPosition);
+      }
+      yPosition += 15;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text(`Total Qty: ${invoice.items?.length || 0}`, margin + 5, yPosition);
+      doc.text(`Total Gross Weight: ${invoice.items?.reduce((sum: number, item: any) => sum + (item.weight || 0), 0).toFixed(3) || '0'}`, margin + 5, yPosition + 8);
+      doc.text(`Total Taxable Amount: ₹${invoice.subtotal?.toLocaleString() || '0'}`, margin + 5, yPosition + 16);
+      
+      if (invoice.discount_amount && invoice.discount_amount > 0) {
+        doc.text(`Less Special Discount Rs 50/-PER GMS: ₹${Math.round(invoice.discount_amount)}`, margin + 5, yPosition + 24);
+        yPosition += 8;
+      }
+      
+      doc.text(`Net Amount: ₹${invoice.total_amount?.toLocaleString() || '0'}`, margin + 5, yPosition + 32);
+
+      const watermarkY = pageHeight - 80;
+      doc.setFillColor(240, 240, 240, 0.3);
+      doc.setFontSize(60);
+      doc.setFont('helvetica', 'bold');
+      doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
+
+      const signatureY = watermarkY + 20;
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(150, 150, 150);
+      doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
+      doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
+
+      const footerY = pageHeight - 25;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setFillColor(0, 0, 0);
+      doc.text('உங்களது வளர்ச்சி!', margin + 5, footerY);
+      doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
+
+      printPDF(doc);
+      success('Invoice opened for printing!');
+    } catch (err) {
+      console.error('Error printing invoice PDF:', err);
+      error('Failed to print invoice PDF. Please try again.');
+    }
+  };
+
   return (
     <>
     <div className="space-y-6">
@@ -1765,7 +2289,7 @@ const Billing: React.FC = () => {
 
           {/* Bill/Invoice/Exchange Items */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-6 border-b border-gray-200">
+            <div className="p-5 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">
               {activeTab === 'billing' ? t('billing.billItemsDeductStock') : 
                activeTab === 'invoice' ? t('billing.invoiceItemsQuoteEstimate') : 
@@ -1774,53 +2298,53 @@ const Billing: React.FC = () => {
             </div>
             
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full table-auto">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                    <th className="px-4 py-2.5 text-left text-sm font-medium text-gray-500 whitespace-nowrap">
                       <div className="flex items-center space-x-2">
                         <Package className="h-4 w-4" />
                         <span>{t('billing.item')}</span>
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                    <th className="px-4 py-2.5 text-left text-sm font-medium text-gray-500 whitespace-nowrap">
                       <div className="flex items-center space-x-2">
                         <Scale className="h-4 w-4" />
                         <span>{t('billing.weight')}</span>
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                    <th className="px-4 py-2.5 text-left text-sm font-medium text-gray-500 whitespace-nowrap">
                       <div className="flex items-center space-x-2">
-                        <span className="text-lg font-bold">₹</span>
+                        <span className="text-base font-bold">₹</span>
                         <span>{t('billing.rate')}</span>
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                    <th className="px-4 py-2.5 text-left text-sm font-medium text-gray-500 whitespace-nowrap">
                       <div className="flex items-center space-x-2">
                         <Wrench className="h-4 w-4" />
                         <span>{t('billing.making')}</span>
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                    <th className="px-4 py-2.5 text-left text-sm font-medium text-gray-500 whitespace-nowrap">
                       <div className="flex items-center space-x-2">
                         <Scale className="h-4 w-4" />
                         <span>{t('billing.wastage')}</span>
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
-                      <div className="flex items-center space-x-2">
+                    <th className="px-4 py-2.5 text-center text-sm font-medium text-gray-500 whitespace-nowrap">
+                      <div className="flex items-center justify-center space-x-2">
                         <Hash className="h-4 w-4" />
                         <span>{t('billing.qty')}</span>
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
+                    <th className="px-4 py-2.5 text-left text-sm font-medium text-gray-500 whitespace-nowrap">
                       <div className="flex items-center space-x-2">
                         <Calculator className="h-4 w-4" />
                         <span>{t('billing.total')}</span>
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
-                      <div className="flex items-center space-x-2">
+                    <th className="px-4 py-2.5 text-center text-sm font-medium text-gray-500 whitespace-nowrap">
+                      <div className="flex items-center justify-center space-x-2">
                         <Settings className="h-4 w-4" />
                         <span>{t('billing.action')}</span>
                       </div>
@@ -1829,17 +2353,19 @@ const Billing: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {(activeTab === 'exchange' ? exchangeMaterial.exchangeItems : (currentBill.items || [])).map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-6 py-4">
-                        <p className="font-medium text-gray-900">{item.product_name}</p>
-                        {(activeTab === 'billing' || activeTab === 'exchange') && (
-                          <p className="text-xs text-gray-500">
-                            {t('billing.stock')}: {products.find(p => p.id === item.product_id)?.stock_quantity || 0}
-                          </p>
-                        )}
+                    <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex items-center space-x-2 whitespace-nowrap">
+                          <span className="font-medium text-gray-900 text-sm">{item.product_name}</span>
+                          {(activeTab === 'billing' || activeTab === 'exchange') && (
+                            <span className="text-xs text-gray-500">
+                              ({t('billing.stock')}: {products.find(p => p.id === item.product_id)?.stock_quantity || 0})
+                            </span>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex items-center space-x-1.5">
                           <input
                             type="number"
                             min="0.01"
@@ -1866,15 +2392,14 @@ const Billing: React.FC = () => {
                               }
                             }}
                             onWheel={handleWheel}
-                            className="w-28 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
                             placeholder="0.00"
                           />
-                          <span className="text-sm text-gray-600 font-medium">g</span>
+                          <span className="text-sm text-gray-600 font-medium whitespace-nowrap">g</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
-                         
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex items-center space-x-1.5">
                           <input
                             type="number"
                             min="1"
@@ -1900,15 +2425,15 @@ const Billing: React.FC = () => {
                               }
                             }}
                             onWheel={handleWheel}
-                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            className="w-24 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
                             placeholder="0"
                           />
-                           <span className="text-gray-500 font-semibold">₹</span>
-                          <span className="text-sm text-gray-600 font-medium">/g</span>
+                          <span className="text-sm text-gray-500 font-semibold whitespace-nowrap">₹</span>
+                          <span className="text-sm text-gray-600 font-medium whitespace-nowrap">/g</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex items-center space-x-1.5">
                           <input
                             type="number"
                             min="0"
@@ -1934,14 +2459,14 @@ const Billing: React.FC = () => {
                               }
                             }}
                             onWheel={handleWheel}
-                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            className="w-24 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
                             placeholder="0"
                           />
-                          <span className="text-gray-500 font-semibold">₹</span>
+                          <span className="text-sm text-gray-500 font-semibold whitespace-nowrap">₹</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex items-center space-x-1.5">
                           <input
                             type="number"
                             min="0"
@@ -1967,14 +2492,14 @@ const Billing: React.FC = () => {
                               }
                             }}
                             onWheel={handleWheel}
-                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            className="w-24 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
                             placeholder="0"
                           />
-                          <span className="text-gray-500 font-semibold">₹</span>
+                          <span className="text-sm text-gray-500 font-semibold whitespace-nowrap">₹</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex items-center justify-center">
                           <input
                             type="number"
                             min="1"
@@ -2001,23 +2526,23 @@ const Billing: React.FC = () => {
                               }
                             }}
                             onWheel={handleWheel}
-                            className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm text-center"
+                            className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm text-center"
                             placeholder="1"
                           />
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2">
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex items-center space-x-1.5">
                           <Calculator className="h-4 w-4 text-gray-400" />
-                          <p className="font-medium text-gray-900">₹{item.total.toLocaleString()}</p>
+                          <p className="font-medium text-gray-900 text-sm whitespace-nowrap">₹{item.total.toLocaleString()}</p>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-2 justify-center">
-                          {/* <Settings className="h-4 w-4 text-gray-400" /> */}
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex items-center justify-center">
                           <button
                             onClick={() => activeTab === 'exchange' ? removeExchangeItem(item.id) : removeBillItem(item.id)}
-                            className="text-red-600 hover:text-red-700"
+                            className="text-red-600 hover:text-red-700 p-1.5 hover:bg-red-50 rounded transition-colors"
+                            title={t('billing.removeItem')}
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -2271,21 +2796,78 @@ const Billing: React.FC = () => {
                 <h2 className="text-lg font-semibold text-gray-900">Actions</h2>
               </div>
               
-              <div className="flex space-x-3">
-                {/* Generate Bill Button */}
-                <button
-                  onClick={activeTab === 'invoice' ? saveInvoice : saveBill}
-                  className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                >
-                  <FileText className="h-5 w-5" />
-                  <span>{activeTab === 'invoice' ? t('billing.generateInvoice') : t('billing.generateBill')}</span>
-                </button>
+              <div className="flex flex-col space-y-3">
+                <div className="flex space-x-3">
+                  {/* Generate Bill Button */}
+                  <button
+                    onClick={activeTab === 'invoice' ? saveInvoice : saveBill}
+                    className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  >
+                    <FileText className="h-5 w-5" />
+                    <span>{activeTab === 'invoice' ? t('billing.generateInvoice') : t('billing.generateBill')}</span>
+                  </button>
 
-                {/* View Invoice/Bill Button */}
+                  {/* View Invoice/Bill Button */}
+                  <button
+                    onClick={() => {
+                      if (!currentBill.items || currentBill.items.length === 0) {
+                        error('Please add items before viewing the PDF');
+                        return;
+                      }
+
+                      if (!selectedCustomer && !currentBill.customer_name) {
+                        error('Please select or enter customer information');
+                        return;
+                      }
+
+                      // Generate temporary bill/invoice number if not saved yet
+                      const tempNumber = activeTab === 'invoice' 
+                        ? `INV-PREVIEW-${Date.now()}`
+                        : `BILL-PREVIEW-${Date.now()}`;
+
+                      const tempDocument: any = {
+                        id: 'preview',
+                        invoice_number: activeTab === 'invoice' ? tempNumber : undefined,
+                        bill_number: activeTab === 'billing' ? tempNumber : undefined,
+                        customer_name: selectedCustomer?.name || currentBill.customer_name || '',
+                        customer_phone: selectedCustomer?.phone || currentBill.customer_phone || '',
+                        items: currentBill.items || [],
+                        subtotal: currentBill.subtotal || 0,
+                        tax_percentage: currentBill.tax_percentage || 0,
+                        tax_amount: currentBill.tax_amount || 0,
+                        discount_percentage: currentBill.discount_percentage || 0,
+                        discount_amount: currentBill.discount_amount || 0,
+                        total_amount: currentBill.total_amount || 0,
+                        payment_method: currentBill.payment_method || 'cash',
+                        payment_status: currentBill.payment_status || 'pending',
+                        amount_paid: currentBill.amount_paid || 0,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      };
+
+                      if (activeTab === 'invoice') {
+                        generateInvoicePDF(tempDocument as Invoice);
+                      } else {
+                        generateBillPDF(tempDocument as Bill);
+                      }
+                    }}
+                    disabled={!currentBill.items || currentBill.items.length === 0}
+                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                      !currentBill.items || currentBill.items.length === 0
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                    }`}
+                  >
+                    <Eye className="h-5 w-5" />
+                    <span>{activeTab === 'invoice' ? t('billing.previewInvoicePDF') : t('billing.previewBillPDF')}</span>
+                  </button>
+                </div>
+
+                {/* Print Button */}
                 <button
                   onClick={() => {
                     if (!currentBill.items || currentBill.items.length === 0) {
-                      error('Please add items before viewing the PDF');
+                      error('Please add items before printing');
                       return;
                     }
 
@@ -2320,20 +2902,20 @@ const Billing: React.FC = () => {
                     };
 
                     if (activeTab === 'invoice') {
-                      generateInvoicePDF(tempDocument as Invoice);
+                      printInvoicePDF(tempDocument as Invoice);
                     } else {
-                      generateBillPDF(tempDocument as Bill);
+                      printBillPDF(tempDocument as Bill);
                     }
                   }}
                   disabled={!currentBill.items || currentBill.items.length === 0}
-                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                  className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
                     !currentBill.items || currentBill.items.length === 0
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                      : 'bg-purple-500 text-white hover:bg-purple-600'
                   }`}
                 >
-                  <Eye className="h-5 w-5" />
-                  <span>{activeTab === 'invoice' ? t('billing.previewInvoicePDF') : t('billing.previewBillPDF')}</span>
+                  <Printer className="h-5 w-5" />
+                  <span>{activeTab === 'invoice' ? 'Print Invoice' : 'Print Bill'}</span>
                 </button>
               </div>
             </div>
@@ -2347,26 +2929,94 @@ const Billing: React.FC = () => {
                 <h2 className="text-lg font-semibold text-gray-900">Actions</h2>
               </div>
               
-              <div className="flex space-x-3">
-                {/* Generate Exchange Bill Button */}
-                <button
-                  onClick={saveExchangeBill}
-                  disabled={!exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0}
-                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
-                    !exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-green-500 text-white hover:bg-green-600'
-                  }`}
-                >
-                  <ShoppingCart className="h-5 w-5" />
-                  <span>{t('billing.generateExchangeBill')}</span>
-                </button>
+              <div className="flex flex-col space-y-3">
+                <div className="flex space-x-3">
+                  {/* Generate Exchange Bill Button */}
+                  <button
+                    onClick={saveExchangeBill}
+                    disabled={!exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0}
+                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                      !exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-green-500 text-white hover:bg-green-600'
+                    }`}
+                  >
+                    <ShoppingCart className="h-5 w-5" />
+                    <span>{t('billing.generateExchangeBill')}</span>
+                  </button>
 
-                {/* Preview Exchange Bill PDF Button */}
+                  {/* Preview Exchange Bill PDF Button */}
+                  <button
+                    onClick={() => {
+                      if (!exchangeMaterial.exchangeItems.length) {
+                        error('Please add exchange items before viewing the PDF');
+                        return;
+                      }
+
+                      if (exchangeMaterial.oldMaterialWeight <= 0) {
+                        error(t('billing.enterOldMaterialWeight'));
+                        return;
+                      }
+
+                      if (!selectedCustomer && !currentBill.customer_name) {
+                        error('Please select or enter customer information');
+                        return;
+                      }
+
+                      // Calculate totals for exchange items
+                      const exchangeSubtotal = exchangeMaterial.exchangeItems.reduce((sum, item) => sum + item.total, 0);
+                      const exchangeTaxAmount = (exchangeSubtotal * (currentBill.tax_percentage || 0)) / 100;
+                      const exchangeDiscountAmount = currentBill.discount_amount || 0;
+                      const exchangeTotalAmount = exchangeSubtotal - exchangeDiscountAmount + exchangeTaxAmount;
+
+                      // Generate temporary exchange bill number
+                      const tempNumber = `EXCH-PREVIEW-${Date.now()}`;
+
+                      const tempDocument: any = {
+                        id: 'preview',
+                        bill_number: tempNumber,
+                        customer_name: selectedCustomer?.name || currentBill.customer_name || '',
+                        customer_phone: selectedCustomer?.phone || currentBill.customer_phone || '',
+                        items: exchangeMaterial.exchangeItems || [],
+                        subtotal: exchangeSubtotal,
+                        tax_percentage: currentBill.tax_percentage || 0,
+                        tax_amount: exchangeTaxAmount,
+                        discount_percentage: currentBill.discount_percentage || 0,
+                        discount_amount: exchangeDiscountAmount,
+                        total_amount: exchangeTotalAmount,
+                        payment_method: currentBill.payment_method || 'cash',
+                        payment_status: exchangeMaterial.difference >= 0 ? 'pending' : 'paid',
+                        amount_paid: exchangeMaterial.difference < 0 ? Math.abs(exchangeMaterial.difference) : 0,
+                        old_gold_weight: exchangeMaterial.oldMaterialWeight,
+                        old_gold_purity: exchangeMaterial.oldMaterialPurity,
+                        old_gold_rate: exchangeMaterial.oldMaterialRate,
+                        old_gold_value: exchangeMaterial.oldMaterialValue,
+                        exchange_rate: exchangeMaterial.exchangeRate,
+                        exchange_difference: exchangeMaterial.difference,
+                        material_type: exchangeMaterial.materialType,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      };
+
+                      generateBillPDF(tempDocument as Bill);
+                    }}
+                    disabled={!exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0}
+                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                      !exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                    }`}
+                  >
+                    <Eye className="h-5 w-5" />
+                    <span>{t('billing.previewExchangeBillPDF')}</span>
+                  </button>
+                </div>
+
+                {/* Print Exchange Bill Button */}
                 <button
                   onClick={() => {
                     if (!exchangeMaterial.exchangeItems.length) {
-                      error('Please add exchange items before viewing the PDF');
+                      error('Please add exchange items before printing');
                       return;
                     }
 
@@ -2415,17 +3065,17 @@ const Billing: React.FC = () => {
                       updated_at: new Date().toISOString(),
                     };
 
-                    generateBillPDF(tempDocument as Bill);
+                    printBillPDF(tempDocument as Bill);
                   }}
                   disabled={!exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0}
-                  className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                  className={`w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
                     !exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                      : 'bg-purple-500 text-white hover:bg-purple-600'
                   }`}
                 >
-                  <Eye className="h-5 w-5" />
-                  <span>{t('billing.previewExchangeBillPDF')}</span>
+                  <Printer className="h-5 w-5" />
+                  <span>Print Exchange Bill</span>
                 </button>
               </div>
             </div>
