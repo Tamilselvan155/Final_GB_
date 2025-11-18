@@ -69,6 +69,7 @@ export interface Invoice {
   customer_id?: string;
   customer_name: string;
   customer_phone?: string;
+  customer_address?: string;
   items: InvoiceItem[];
   subtotal: number;
   tax_percentage: number;

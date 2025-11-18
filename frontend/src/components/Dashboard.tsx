@@ -62,10 +62,6 @@ const Dashboard: React.FC = () => {
     startDate: '',
     endDate: '',
   });
-  const [dateRangeErrors, setDateRangeErrors] = useState<{
-    startDate?: string;
-    endDate?: string;
-  }>({});
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [filteredSalesData, setFilteredSalesData] = useState<Array<{ period: string; sales: number }>>([]);
@@ -144,18 +140,10 @@ const Dashboard: React.FC = () => {
 
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date();
-      todayEnd.setHours(23, 59, 59, 999);
-      
       const todaySales = allSales
         .filter((sale) => {
-          if (!sale.created_at) return false;
           const saleDate = new Date(sale.created_at);
-          if (isNaN(saleDate.getTime())) return false;
-          // Compare dates by day (ignore time) to handle timezone issues
-          const saleDateOnly = new Date(saleDate.getFullYear(), saleDate.getMonth(), saleDate.getDate());
-          const todayDateOnly = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate());
-          return saleDateOnly.getTime() === todayDateOnly.getTime();
+          return !isNaN(saleDate.getTime()) && saleDate >= todayStart;
         })
         .reduce((sum, sale) => {
           const amount = parseFloat(sale.total_amount) || 0;
@@ -167,10 +155,8 @@ const Dashboard: React.FC = () => {
       thisMonthStart.setHours(0, 0, 0, 0);
       const thisMonthSales = allSales
         .filter((sale) => {
-          if (!sale.created_at) return false;
           const saleDate = new Date(sale.created_at);
-          if (isNaN(saleDate.getTime())) return false;
-          return saleDate >= thisMonthStart;
+          return !isNaN(saleDate.getTime()) && saleDate >= thisMonthStart;
         })
         .reduce((sum, sale) => {
           const amount = parseFloat(sale.total_amount) || 0;
@@ -344,15 +330,8 @@ const Dashboard: React.FC = () => {
       }
 
       allSales.forEach((sale) => {
-        if (!sale.created_at) return;
         const saleDate = new Date(sale.created_at);
-        if (isNaN(saleDate.getTime())) return;
-        
-        // Compare dates by day (ignore time) to handle timezone issues
-        const saleDateOnly = new Date(saleDate.getFullYear(), saleDate.getMonth(), saleDate.getDate());
-        const todayDateOnly = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate());
-        
-        if (saleDateOnly.getTime() === todayDateOnly.getTime()) {
+        if (saleDate >= todayStart && saleDate <= todayEnd) {
           const hour = saleDate.getHours();
           const hourKey = `${hour}:00`;
           const amount = parseFloat(sale.total_amount) || 0;
@@ -557,7 +536,7 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const generateInvoicePDF = (invoice: Invoice) => {
+  const generateInvoicePDF = async (invoice: Invoice) => {
     try {
       if (!invoice) {
         error('Invalid invoice data');
@@ -577,69 +556,108 @@ const Dashboard: React.FC = () => {
     doc.rect(0, 0, pageWidth, 10, 'F'); // Top border
     doc.rect(0, pageHeight - 10, pageWidth, 10, 'F'); // Bottom border
 
-    // Header with Tamil text (exact template text)
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('ஸ்ரீ காத்தாயி அம்மன் துணை', pageWidth / 2, yPosition, { align: 'center' });
+    // Load and add invoice background image as centered watermark with opacity
+    // This should be drawn BEFORE content so it appears behind everything
+    try {
+      // Try multiple possible paths for the sample invoice image (Vite serves from public folder)
+      const possiblePaths = [
+        '/assets/sample-invoice.png',  // Sample invoice template (primary)
+        '/assets/vannaMayil-invoice.jpeg',  // Fallback to original
+        '/sample-invoice.png',  // Root public folder
+        '/vannaMayil-invoice.jpeg',  // Root public folder fallback
+        './assets/sample-invoice.png',
+        'assets/sample-invoice.png'
+      ];
+      
+      let imageDataUrl: string | null = null;
+      for (const imagePath of possiblePaths) {
+        try {
+          const response = await fetch(imagePath);
+          if (response.ok) {
+            const blob = await response.blob();
+            imageDataUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+            break;
+          }
+        } catch (e) {
+          // Try next path
+          continue;
+        }
+      }
+      
+      if (imageDataUrl) {
+        console.log('Background image loaded successfully, adding to PDF...');
+        // Store imageDataUrl in a const to avoid null check issues
+        const currentImageDataUrl = imageDataUrl;
+        // Add background image as full-page background with reduced opacity
+        // The background image contains all the Tamil text and logos already rendered
+        await new Promise<void>((resolve) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                // Fill with white background first
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw the sample invoice template as the base - it should be the actual template
+                // Use full opacity for the template structure, then we'll add dynamic content on top
+                ctx.globalAlpha = 1.0; // Full opacity - this is the actual invoice template
+                ctx.drawImage(img, 0, 0);
+                ctx.globalAlpha = 1.0; // Reset
+                
+                // Use PNG format for sample invoice, JPEG for fallback
+                const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
+                const templateImageDataUrl = canvas.toDataURL(imageFormat === 'PNG' ? 'image/png' : 'image/jpeg', 1.0);
+                // Add the template as the base layer - FULL PAGE (0,0) since template includes borders
+                // The template image already contains all borders, so we place it at the origin
+                doc.addImage(templateImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
+                console.log('Background image added to PDF successfully');
+              }
+            } catch (canvasError) {
+              console.error('Canvas operation failed, adding image without opacity:', canvasError);
+              // Fallback: add image without opacity - full page since template includes borders
+              if (currentImageDataUrl) {
+                const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
+                // Template includes borders, so place at origin (0,0) at full page size
+                doc.addImage(currentImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
+              }
+            }
+            resolve();
+          };
+          img.onerror = (error) => {
+            console.error('Failed to load image for watermark:', error);
+            console.error('Image src was:', currentImageDataUrl.substring(0, 100));
+            resolve();
+          };
+          img.src = currentImageDataUrl;
+        });
+      }
+    } catch (bgError) {
+      console.warn('Could not load invoice background image:', bgError);
+      // Background image is optional, continue without it
+    }
+
+    // Note: All header text, logos, and Tamil text are already in the background image
+    // We only need to add dynamic content (customer info, items, etc.)
+    // Skip drawing header elements as they're in the background image
+    yPosition = 80; // Start after header section
+
+    // Dotted line before Invoice Details
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
+    }
     yPosition += 8;
-    doc.text('வர்ணமிகு நகைகளுக்கு', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 15;
-
-    // Left side business details (exact template layout)
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    
-    // B15 Logo placeholder (blue triangle)
-    doc.setFillColor(0, 0, 255); // Blue color
-    doc.rect(margin, yPosition, 8, 8, 'F');
-    doc.setFillColor(255, 255, 255); // White text
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'bold');
-    doc.text('B15', margin + 2, yPosition + 6);
-    
-    // Reset font
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    
-    doc.text('GSTIN: 33DIZPK7238G1ZP', margin, yPosition + 12);
-    doc.text('Mobile: 98432 95615', margin, yPosition + 20);
-    doc.text('Address: அகரம் சீகூர்', margin, yPosition + 28);
-    doc.text('(பார்டர்) - 621 108.', margin, yPosition + 36);
-    doc.text('பெரம்பலூர் Dt.', margin, yPosition + 44);
-
-    // Right side branding (exact template layout)
-    // VKV Logo placeholder (circular with yellow/red)
-    const logoX = pageWidth - margin - 25;
-    doc.setFillColor(255, 255, 0); // Yellow outer ring
-    doc.circle(logoX, yPosition + 10, 8, 'F');
-    doc.setFillColor(255, 0, 0); // Red inner circle
-    doc.circle(logoX, yPosition + 10, 6, 'F');
-    doc.setFillColor(255, 255, 255); // White text
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'bold');
-    doc.text('VKV', logoX - 2, yPosition + 12);
-    
-    // Tamil words below logo
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'normal');
-    doc.text('நம்பிக்கை', logoX - 4, yPosition + 18);
-    doc.text('தரம்', logoX - 2, yPosition + 24);
-    
-    // Company name (exact Tamil text)
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('ஸ்ரீ வண்ணமயில்', pageWidth - margin, yPosition + 35, { align: 'right' });
-    doc.text('தங்கமாளிகை', pageWidth - margin, yPosition + 45, { align: 'right' });
-    
-    // Slogan in red
-    doc.setFillColor(255, 0, 0); // Red text
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
-
-    yPosition += 70;
 
     // Invoice Details section header (light gray box)
     doc.setFillColor(240, 240, 240);
@@ -658,9 +676,17 @@ const Dashboard: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.text('Customer Name & address', margin + 5, yPosition + 8);
     doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
     doc.text(invoice.customer_name || '', margin + 5, yPosition + 18);
+    if (invoice.customer_address) {
+      const addressLines = doc.splitTextToSize(invoice.customer_address, 100);
+      doc.text(addressLines[0] || '', margin + 5, yPosition + 26);
+      if (addressLines[1]) {
+        doc.text(addressLines[1], margin + 5, yPosition + 34);
+      }
+    }
     if (invoice.customer_phone) {
-      doc.text(`Phone: ${invoice.customer_phone}`, margin + 5, yPosition + 28);
+      doc.text(`Phone: ${invoice.customer_phone}`, margin + 5, yPosition + (invoice.customer_address ? 42 : 28));
     }
 
     // Right side boxes (DATE, Time, NO)
@@ -710,27 +736,32 @@ const Dashboard: React.FC = () => {
     // Items table header
     doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
-    const colPositions = [margin + 5, margin + 30, margin + 95, margin + 130, margin + 165, margin + 190];
+    const colPositions = [margin + 5, margin + 25, margin + 100, margin + 135, margin + 165];
     
     doc.text('Qty', colPositions[0], yPosition);
     doc.text('Description', colPositions[1], yPosition);
-    doc.text('HSN/SAC', colPositions[2], yPosition);
-    doc.text('Rate', colPositions[3], yPosition);
-    doc.text('Gross Wt.', colPositions[4], yPosition);
-    doc.text('Taxable Amount', colPositions[5], yPosition);
+    doc.text('Rate', colPositions[2], yPosition);
+    doc.text('Gross Wt.', colPositions[3], yPosition);
     yPosition += 10;
 
     // Items table data
     doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
     if (invoice.items && Array.isArray(invoice.items)) {
       invoice.items.forEach((item: any) => {
         doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
-        doc.text(item.product_name || 'N/A', colPositions[1], yPosition);
-        doc.text('711319', colPositions[2], yPosition); // HSN code for gold jewelry
-        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, colPositions[3], yPosition);
-        doc.text(item.weight?.toString() || '0', colPositions[4], yPosition);
-        doc.text(`₹${item.total?.toLocaleString() || '0'}`, colPositions[5], yPosition);
+        // Truncate long product names to fit
+        const productName = (item.product_name || 'N/A').substring(0, 30);
+        doc.text(productName, colPositions[1], yPosition);
+        doc.text(`₹${(item.rate || 0).toLocaleString('en-IN')}`, colPositions[2], yPosition);
+        doc.text((item.weight || 0).toString(), colPositions[3], yPosition);
         yPosition += 8;
+        
+        // Check if we need a new page
+        if (yPosition > pageHeight - 80) {
+          doc.addPage();
+          yPosition = 25;
+        }
       });
     }
 
@@ -745,38 +776,34 @@ const Dashboard: React.FC = () => {
     // Summary section
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
-    doc.text(`Total Qty: ${invoice.items?.length || 0}`, margin + 5, yPosition);
-    doc.text(`Total Gross Weight: ${invoice.items?.reduce((sum: number, item: any) => sum + (item.weight || 0), 0).toFixed(3) || '0'}`, margin + 5, yPosition + 8);
-    doc.text(`Total Taxable Amount: ₹${invoice.subtotal?.toLocaleString() || '0'}`, margin + 5, yPosition + 16);
+    const totalQty = invoice.items?.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0) || 0;
+    const totalWeight = invoice.items?.reduce((sum: number, item: any) => sum + (parseFloat(item.weight) || 0), 0) || 0;
+    
+    doc.text(`Total Qty: ${totalQty}`, margin + 5, yPosition);
+    doc.text(`Total Gross Weight: ${totalWeight.toFixed(3)}`, margin + 5, yPosition + 8);
+    doc.text(`Total Taxable Amount: ₹${(invoice.subtotal || 0).toLocaleString('en-IN')}`, margin + 5, yPosition + 16);
     
     if (invoice.discount_amount && invoice.discount_amount > 0) {
-      doc.text(`Less Special Discount Rs 50/-PER GMS: ₹${Math.round(invoice.discount_amount)}`, margin + 5, yPosition + 24);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Less Special Discount: ₹${Math.round(invoice.discount_amount).toLocaleString('en-IN')}`, margin + 5, yPosition + 24);
       yPosition += 8;
+      doc.setFont('helvetica', 'bold');
     }
     
-    doc.text(`Net Amount: ₹${invoice.total_amount?.toLocaleString() || '0'}`, margin + 5, yPosition + 32);
+    doc.text(`Net Amount: ₹${(invoice.total_amount || 0).toLocaleString('en-IN')}`, margin + 5, yPosition + 32);
 
-    // Peacock watermark (simplified version)
-    const watermarkY = pageHeight - 80;
-    doc.setFillColor(240, 240, 240, 0.3); // Semi-transparent gray
-    doc.setFontSize(60);
-    doc.setFont('helvetica', 'bold');
-    doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
+    // Note: Central watermark logo is already in the background image
+    // No need to draw it separately
 
-    // Signature lines (right side)
-    const signatureY = watermarkY + 20;
+    // Signature lines (right side, below summary)
+    const signatureY = yPosition + 50;
     doc.setLineWidth(0.5);
     doc.setDrawColor(150, 150, 150);
     doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
     doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
 
-    // Footer messages (exact Tamil text)
-    const footerY = pageHeight - 25;
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.text('உங்களது வளர்ச்சி!', margin + 5, footerY);
-    doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
+    // Note: Footer bar and Tamil text are already in the background image
+    // No need to draw them separately
 
     // Download
       const invoiceNumber = invoice.invoice_number || 'INV-UNKNOWN';
@@ -871,6 +898,14 @@ const Dashboard: React.FC = () => {
     doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
 
     yPosition += 70;
+
+    // Dotted line before Invoice Details
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    for (let i = margin; i < pageWidth - margin; i += 4) {
+      doc.line(i, yPosition, i + 2, yPosition);
+    }
+    yPosition += 8;
 
     // Invoice Details section header (light gray box)
     doc.setFillColor(240, 240, 240);
@@ -1038,10 +1073,10 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const generateTransactionPDF = (transaction: Invoice | Bill | any) => {
+  const generateTransactionPDF = async (transaction: Invoice | Bill | any) => {
     // Determine if it's an invoice or bill
     if (transaction.invoice_number) {
-      generateInvoicePDF(transaction as Invoice);
+      await generateInvoicePDF(transaction as Invoice);
     } else if (transaction.bill_number) {
       generateBillPDF(transaction as Bill);
     } else {
@@ -1581,9 +1616,9 @@ const Dashboard: React.FC = () => {
                 <XCircle className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-sm text-gray-500 mt-2">{t('dashboard.selectDateRangeDescription')}</p>
-          </div>
-          <div className="p-6 space-y-6">
+              <p className="text-sm text-gray-500 mt-2">{t('dashboard.selectDateRangeDescription')}</p>
+            </div>
+            <div className="p-6 space-y-6">
               {/* Quick Presets */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-3">{t('dashboard.quickPresets')}</label>
@@ -1635,70 +1670,28 @@ const Dashboard: React.FC = () => {
                     <label className="block text-xs font-medium text-gray-600 mb-1.5">{t('dashboard.startDate')}</label>
                     <div className="relative">
                       <CalendarDays className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <input
-                        type="date"
-                        value={customDateRange.startDate}
-                        onChange={(e) => {
-                          setCustomDateRange((prev) => ({ ...prev, startDate: e.target.value }));
-                          if (dateRangeErrors.startDate) {
-                            setDateRangeErrors(prev => ({ ...prev, startDate: undefined }));
-                          }
-                          // Validate if end date exists
-                          if (customDateRange.endDate && e.target.value > customDateRange.endDate) {
-                            setDateRangeErrors(prev => ({ ...prev, startDate: t('dashboard.startDateAfterEndDate') }));
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value && customDateRange.endDate && e.target.value > customDateRange.endDate) {
-                            setDateRangeErrors(prev => ({ ...prev, startDate: t('dashboard.startDateAfterEndDate') }));
-                          } else if (e.target.value && new Date(e.target.value) > new Date()) {
-                            setDateRangeErrors(prev => ({ ...prev, startDate: t('dashboard.startDateFuture') }));
-                          }
-                        }}
+                <input
+                  type="date"
+                  value={customDateRange.startDate}
+                  onChange={(e) => setCustomDateRange((prev) => ({ ...prev, startDate: e.target.value }))}
                         max={customDateRange.endDate || new Date().toISOString().split('T')[0]}
-                        className={`w-full pl-10 pr-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm ${
-                          dateRangeErrors.startDate ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                      />
+                        className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                />
                     </div>
-                    {dateRangeErrors.startDate && (
-                      <p className="mt-1 text-xs text-red-600">{dateRangeErrors.startDate}</p>
-                    )}
               </div>
               <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1.5">{t('dashboard.endDate')}</label>
                     <div className="relative">
                       <CalendarDays className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <input
-                        type="date"
-                        value={customDateRange.endDate}
-                        onChange={(e) => {
-                          setCustomDateRange((prev) => ({ ...prev, endDate: e.target.value }));
-                          if (dateRangeErrors.endDate) {
-                            setDateRangeErrors(prev => ({ ...prev, endDate: undefined }));
-                          }
-                          // Validate if start date exists
-                          if (customDateRange.startDate && e.target.value < customDateRange.startDate) {
-                            setDateRangeErrors(prev => ({ ...prev, endDate: t('dashboard.endDateBeforeStartDate') }));
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value && customDateRange.startDate && e.target.value < customDateRange.startDate) {
-                            setDateRangeErrors(prev => ({ ...prev, endDate: t('dashboard.endDateBeforeStartDate') }));
-                          } else if (e.target.value && new Date(e.target.value) > new Date()) {
-                            setDateRangeErrors(prev => ({ ...prev, endDate: t('dashboard.endDateFuture') }));
-                          }
-                        }}
+                <input
+                  type="date"
+                  value={customDateRange.endDate}
+                  onChange={(e) => setCustomDateRange((prev) => ({ ...prev, endDate: e.target.value }))}
                         min={customDateRange.startDate}
                         max={new Date().toISOString().split('T')[0]}
-                        className={`w-full pl-10 pr-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm ${
-                          dateRangeErrors.endDate ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                      />
-                    </div>
-                    {dateRangeErrors.endDate && (
-                      <p className="mt-1 text-xs text-red-600">{dateRangeErrors.endDate}</p>
-                    )}
+                        className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                />
+              </div>
                   </div>
                 </div>
                 {customDateRange.startDate && customDateRange.endDate && (
