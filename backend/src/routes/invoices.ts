@@ -68,6 +68,15 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   try {
     const { id } = req.params;
+    // Convert ID to integer for database query (SQLite stores IDs as INTEGER)
+    const invoiceId = parseInt(id, 10);
+    
+    if (isNaN(invoiceId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid invoice ID'
+      });
+    }
     
     // Get invoice details
     const invoiceStmt = Database.prepare(`
@@ -76,7 +85,7 @@ router.get('/:id', (req, res) => {
       LEFT JOIN customers c ON i.customer_id = c.id
       WHERE i.id = ?
     `);
-    const invoice = invoiceStmt.get(id);
+    const invoice = invoiceStmt.get(invoiceId);
     
     if (!invoice) {
       return res.status(404).json({
@@ -85,18 +94,21 @@ router.get('/:id', (req, res) => {
       });
     }
     
-    // Get invoice items
+    // Get invoice items - ensure we use integer ID
     const itemsStmt = Database.prepare('SELECT * FROM invoice_items WHERE invoice_id = ?');
-    const items = itemsStmt.all(id);
+    const items = itemsStmt.all(invoiceId);
+    
+    console.log(`Fetched invoice ${invoiceId}: Found ${items.length} items`);
     
     res.json({
       success: true,
       data: {
         ...invoice,
-        items
+        items: items || []
       }
     });
   } catch (error) {
+    console.error('Error fetching invoice:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch invoice'
@@ -185,38 +197,71 @@ router.post('/', (req, res) => {
       
       const invoiceId = invoiceResult.lastInsertRowid;
       
-      // Insert invoice items
-      const itemStmt = Database.prepare(`
-        INSERT INTO invoice_items (invoice_id, product_id, product_name, weight, rate, making_charge, quantity, total)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      
-      items.forEach((item: any) => {
-        itemStmt.run(
-          invoiceId, item.product_id, item.product_name, item.weight, item.rate,
-          item.making_charge, item.quantity, item.total
-        );
-        
-        // Update product stock
-        const updateStockStmt = Database.prepare(`
-          UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?
-        `);
-        updateStockStmt.run(item.quantity, item.product_id);
-        
-        // Record stock transaction
-        const stockTransactionStmt = Database.prepare(`
-          INSERT INTO stock_transactions (product_id, transaction_type, quantity, previous_stock, new_stock, reason, reference_id, reference_type)
-          VALUES (?, 'out', ?, ?, ?, 'Sale', ?, 'invoice')
+      // Insert invoice items - ensure items array exists and has items
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        console.warn('Warning: Invoice created without items!', {
+          invoiceId,
+          itemsCount: items?.length || 0
+        });
+      } else {
+        console.log(`Inserting ${items.length} items for invoice ${invoiceId}`);
+        const itemStmt = Database.prepare(`
+          INSERT INTO invoice_items (invoice_id, product_id, product_name, weight, rate, making_charge, quantity, total)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
-        const productStmt = Database.prepare('SELECT stock_quantity FROM products WHERE id = ?');
-        const product = productStmt.get(item.product_id);
-        const newStock = product.stock_quantity;
-        
-        stockTransactionStmt.run(
-          item.product_id, item.quantity, newStock + item.quantity, newStock, invoiceId
-        );
-      });
+        items.forEach((item: any, index: number) => {
+          if (!item.product_name) {
+            console.warn(`Skipping item ${index} without product_name:`, item);
+            return;
+          }
+          
+          try {
+            itemStmt.run(
+              invoiceId, 
+              item.product_id || null, 
+              item.product_name || 'Unknown Product', 
+              item.weight || 0, 
+              item.rate || 0,
+              item.making_charge || 0, 
+              item.quantity || 1, 
+              item.total || 0
+            );
+            console.log(`Inserted invoice item ${index + 1}:`, {
+              invoiceId,
+              product_name: item.product_name,
+              quantity: item.quantity,
+              total: item.total
+            });
+            
+            // Update product stock if product_id exists
+            if (item.product_id) {
+              const updateStockStmt = Database.prepare(`
+                UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?
+              `);
+              updateStockStmt.run(item.quantity || 1, item.product_id);
+              
+              // Record stock transaction
+              const stockTransactionStmt = Database.prepare(`
+                INSERT INTO stock_transactions (product_id, transaction_type, quantity, previous_stock, new_stock, reason, reference_id, reference_type)
+                VALUES (?, 'out', ?, ?, ?, 'Sale', ?, 'invoice')
+              `);
+              
+              const productStmt = Database.prepare('SELECT stock_quantity FROM products WHERE id = ?');
+              const product = productStmt.get(item.product_id);
+              if (product) {
+                const newStock = product.stock_quantity;
+                stockTransactionStmt.run(
+                  item.product_id, item.quantity || 1, newStock + (item.quantity || 1), newStock, invoiceId
+                );
+              }
+            }
+          } catch (itemError) {
+            console.error(`Error inserting item ${index + 1}:`, itemError);
+            console.error('Item data:', item);
+          }
+        });
+      }
       
       return invoiceId;
     });
@@ -235,11 +280,19 @@ router.post('/', (req, res) => {
     const getItems = Database.prepare('SELECT * FROM invoice_items WHERE invoice_id = ?');
     const invoiceItems = getItems.all(invoiceId);
     
+    console.log(`Created invoice ${invoiceId} with ${invoiceItems.length} items`);
+    if (invoiceItems.length === 0 && items && items.length > 0) {
+      console.error('ERROR: Items were provided but not saved to database!', {
+        invoiceId,
+        providedItemsCount: items.length
+      });
+    }
+    
     res.status(201).json({
       success: true,
       data: {
         ...invoice,
-        items: invoiceItems
+        items: invoiceItems || []
       }
     });
   } catch (error) {
