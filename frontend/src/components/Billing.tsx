@@ -46,9 +46,6 @@ const Billing: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
-  const [customerModalInitialView, setCustomerModalInitialView] = useState<'list' | 'add'>('list');
-  const [customerFilter, setCustomerFilter] = useState('');
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [recentBills, setRecentBills] = useState<Bill[]>([]);
   const [recentInvoices, setRecentInvoices] = useState<Invoice[]>([]);
   const [exchangeBills, setExchangeBills] = useState<Bill[]>([]);
@@ -78,30 +75,6 @@ const Billing: React.FC = () => {
     difference: 0,
     exchangeItems: [] as InvoiceItem[],
   });
-
-  // Form validation errors
-  const [billFormErrors, setBillFormErrors] = useState<{
-    tax_percentage?: string;
-    discount_amount?: string;
-    amount_paid?: string;
-    payment_method?: string;
-  }>({});
-
-  const [itemErrors, setItemErrors] = useState<{
-    [itemId: string]: {
-      weight?: string;
-      rate?: string;
-      making_charge?: string;
-      wastage_charge?: string;
-      quantity?: string;
-    };
-  }>({});
-
-  const [exchangeFormErrors, setExchangeFormErrors] = useState<{
-    oldMaterialWeight?: string;
-    oldMaterialRate?: string;
-    exchangeRate?: string;
-  }>({});
 
   // Memoized functions - declared before useEffect hooks
   const loadData = useCallback(async () => {
@@ -511,23 +484,6 @@ const Billing: React.FC = () => {
     };
   }, []);
 
-  // Close customer dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest('.customer-filter-container')) {
-        setShowCustomerDropdown(false);
-      }
-    };
-
-    if (showCustomerDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-      };
-    }
-  }, [showCustomerDropdown]);
-
   const saveBill = async () => {
     if (!currentBill.items?.length) {
       error(t('billing.addAtLeastOneItem'));
@@ -665,12 +621,22 @@ const Billing: React.FC = () => {
       
       // Generate PDF automatically after saving
       try {
+        // Ensure items are included - use invoiceData items if savedInvoice doesn't have them
         const invoiceWithNumber = {
           ...savedInvoice,
           invoice_number: invoiceNumber,
           created_at: savedInvoice.created_at || new Date().toISOString(),
+          // Ensure items are included - use from invoiceData if not in savedInvoice
+          items: savedInvoice.items && savedInvoice.items.length > 0 
+            ? savedInvoice.items 
+            : (invoiceData.items || [])
         };
-        generateInvoicePDF(invoiceWithNumber as Invoice);
+        console.log('Generating PDF with invoice:', {
+          id: invoiceWithNumber.id,
+          invoice_number: invoiceWithNumber.invoice_number,
+          itemsCount: invoiceWithNumber.items?.length || 0
+        });
+        await generateInvoicePDF(invoiceWithNumber as Invoice);
       } catch (pdfError) {
         console.error('Error generating PDF:', pdfError);
         // Don't fail the save if PDF generation fails
@@ -845,64 +811,17 @@ const Billing: React.FC = () => {
   const CustomerModal: React.FC<{
     onClose: () => void;
     onSelect: (customer: Customer) => void;
-    initialView?: 'list' | 'add';
-  }> = ({ onClose, onSelect, initialView = 'list' }) => {
+  }> = ({ onClose, onSelect }) => {
     const [newCustomer, setNewCustomer] = useState({
       name: '',
       phone: '',
       email: '',
       address: '',
     });
-    const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-    const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
-    const [showAddForm, setShowAddForm] = useState(initialView === 'add');
-    const [customerErrors, setCustomerErrors] = useState<{
-      name?: string;
-      phone?: string;
-      email?: string;
-    }>({});
-
-    // Update view when initialView prop changes
-    useEffect(() => {
-      setShowAddForm(initialView === 'add');
-    }, [initialView]);
-
-    // Validate customer form
-    const validateCustomer = (): boolean => {
-      const errors: { name?: string; phone?: string; email?: string } = {};
-      
-      // Name validation
-      if (!newCustomer.name.trim()) {
-        errors.name = t('billing.nameRequired');
-      } else if (newCustomer.name.trim().length < 2) {
-        errors.name = t('billing.nameMinLength');
-      }
-      
-      // Phone validation
-      if (!newCustomer.phone.trim()) {
-        errors.phone = t('billing.phoneRequired');
-      } else {
-        const phoneRegex = /^[0-9]{10}$/;
-        const cleanedPhone = newCustomer.phone.replace(/[\s\-\(\)]/g, '');
-        if (!phoneRegex.test(cleanedPhone) || cleanedPhone.length !== 10) {
-          errors.phone = t('billing.phoneInvalid');
-        }
-      }
-      
-      // Email validation (optional but must be valid if provided)
-      if (newCustomer.email.trim()) {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(newCustomer.email.trim())) {
-          errors.email = t('billing.emailInvalid');
-        }
-      }
-      
-      setCustomerErrors(errors);
-      return Object.keys(errors).length === 0;
-    };
 
     const handleAddCustomer = async () => {
-      if (!validateCustomer()) {
+      if (!newCustomer.name || !newCustomer.phone) {
+        error(t('billing.nameAndPhoneRequired'));
         return;
       }
 
@@ -910,10 +829,6 @@ const Billing: React.FC = () => {
         const db = Database.getInstance();
         const customerData = await db.createCustomer(newCustomer);
         setCustomers([...customers, customerData]);
-        // Reset form and errors
-        setNewCustomer({ name: '', phone: '', email: '', address: '' });
-        setCustomerErrors({});
-        // Select the new customer and close modal
         onSelect(customerData);
         onClose();
         success(t('billing.customerCreatedSuccess'));
@@ -923,56 +838,12 @@ const Billing: React.FC = () => {
       }
     };
 
-    // Filter customers based on search term
-    const filteredCustomers = useMemo(() => {
-      if (!customerSearchTerm.trim()) return customers;
-      const searchLower = customerSearchTerm.toLowerCase().trim();
-      return customers.filter(customer =>
-        customer.name?.toLowerCase().includes(searchLower) ||
-        customer.phone?.toLowerCase().includes(searchLower) ||
-        customer.email?.toLowerCase().includes(searchLower)
-      );
-    }, [customers, customerSearchTerm]);
-
-    const handleDeleteCustomer = async () => {
-      if (!customerToDelete) return;
-
-      try {
-        const db = Database.getInstance();
-        await db.deleteCustomer(customerToDelete.id);
-        
-        // Remove from customers list
-        setCustomers(customers.filter(c => c.id !== customerToDelete.id));
-        
-        // If deleted customer was selected, clear selection
-        if (selectedCustomer?.id === customerToDelete.id) {
-          setSelectedCustomer(null);
-          setCurrentBill(prev => ({
-            ...prev,
-            customer_name: '',
-            customer_phone: ''
-          }));
-        }
-        
-        setCustomerToDelete(null);
-        success('Customer deleted successfully!');
-      } catch (err: any) {
-        console.error('Error deleting customer:', err);
-        // Extract error message from backend response
-        const errorMessage = err?.response?.data?.error || err?.message || 'Failed to delete customer. Please try again.';
-        error(errorMessage);
-      }
-    };
-
     return (
-      <>
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
           <div className="p-6 border-b border-gray-300">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">
-                {showAddForm ? t('billing.addNewCustomer') : t('billing.selectCustomer')}
-              </h2>
+              <h2 className="text-xl font-bold text-gray-900">{t('billing.selectCustomer')}</h2>
               <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
                 <X className="h-5 w-5" />
               </button>
@@ -980,102 +851,38 @@ const Billing: React.FC = () => {
           </div>
           
           <div className="p-6 space-y-6">
-            {/* Navigation Tabs */}
-            <div className="flex space-x-2 border-b border-gray-200">
-              <button
-                onClick={() => setShowAddForm(false)}
-                className={`px-4 py-2 font-medium transition-colors ${
-                  !showAddForm
-                    ? 'text-amber-600 border-b-2 border-amber-500'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {t('billing.existingCustomers')}
-              </button>
-              <button
-                onClick={() => setShowAddForm(true)}
-                className={`px-4 py-2 font-medium transition-colors ${
-                  showAddForm
-                    ? 'text-amber-600 border-b-2 border-amber-500'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {t('billing.addNewCustomer')}
-              </button>
-            </div>
-
-            {showAddForm ? (
-              /* Add New Customer Form */
-              <div className="border border-gray-200 rounded-lg p-4">
-                <h3 className="font-medium text-gray-900 mb-4">{t('billing.addNewCustomer')}</h3>
+            {/* Add New Customer */}
+            <div className="border border-gray-200 rounded-lg p-4">
+              <h3 className="font-medium text-gray-900 mb-4">{t('billing.addNewCustomer')}</h3>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <input
-                    type="text"
-                    placeholder={`${t('billing.fullName')} *`}
-                    value={newCustomer.name}
-                    onChange={(e) => {
-                      setNewCustomer({ ...newCustomer, name: e.target.value });
-                      if (customerErrors.name) {
-                        setCustomerErrors({ ...customerErrors, name: undefined });
-                      }
-                    }}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                      customerErrors.name ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                  />
-                  {customerErrors.name && (
-                    <p className="mt-1 text-xs text-red-600">{customerErrors.name}</p>
-                  )}
-                </div>
-                <div>
-                  <input
-                    type="tel"
-                    placeholder={`${t('billing.phoneNumber')} *`}
-                    value={newCustomer.phone}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/[^\d]/g, '').slice(0, 10);
-                      setNewCustomer({ ...newCustomer, phone: value });
-                      if (customerErrors.phone) {
-                        setCustomerErrors({ ...customerErrors, phone: undefined });
-                      }
-                    }}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                      customerErrors.phone ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                  />
-                  {customerErrors.phone && (
-                    <p className="mt-1 text-xs text-red-600">{customerErrors.phone}</p>
-                  )}
-                </div>
-                <div>
-                  <input
-                    type="email"
-                    placeholder={t('billing.emailOptional')}
-                    value={newCustomer.email}
-                    onChange={(e) => {
-                      setNewCustomer({ ...newCustomer, email: e.target.value });
-                      if (customerErrors.email) {
-                        setCustomerErrors({ ...customerErrors, email: undefined });
-                      }
-                    }}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                      customerErrors.email ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                  />
-                  {customerErrors.email && (
-                    <p className="mt-1 text-xs text-red-600">{customerErrors.email}</p>
-                  )}
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    placeholder={t('billing.addressOptional')}
-                    value={newCustomer.address}
-                    onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder={`${t('billing.fullName')} *`}
+                  value={newCustomer.name}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                />
+                <input
+                  type="tel"
+                  placeholder={`${t('billing.phoneNumber')} *`}
+                  value={newCustomer.phone}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                />
+                <input
+                  type="email"
+                  placeholder={t('billing.emailOptional')}
+                  value={newCustomer.email}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                />
+                <input
+                  type="text"
+                  placeholder={t('billing.addressOptional')}
+                  value={newCustomer.address}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                />
               </div>
               <button
                 onClick={handleAddCustomer}
@@ -1084,119 +891,34 @@ const Billing: React.FC = () => {
                 {t('billing.addCustomer')}
               </button>
             </div>
-            ) : (
-            /* Existing Customers */
+
+            {/* Existing Customers */}
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-medium text-gray-900">{t('billing.existingCustomers')}</h3>
-                <span className="text-sm text-gray-500">
-                  {filteredCustomers.length} {filteredCustomers.length === 1 ? 'customer' : 'customers'}
-                </span>
-              </div>
-              
-              {/* Customer Search Filter */}
-              <div className="mb-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search by name, phone, or email..."
-                    value={customerSearchTerm}
-                    onChange={(e) => setCustomerSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                  {customerSearchTerm && (
-                    <button
-                      onClick={() => setCustomerSearchTerm('')}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-              
+              <h3 className="font-medium text-gray-900 mb-4">{t('billing.existingCustomers')}</h3>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {filteredCustomers.length > 0 ? (
-                  filteredCustomers.map((customer) => (
-                    <div
-                      key={customer.id}
-                      className="p-3 border border-gray-200 rounded-lg hover:bg-amber-50 hover:border-amber-300 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div
-                          onClick={() => {
-                            onSelect(customer);
-                            onClose();
-                          }}
-                          className="flex-1 cursor-pointer"
-                        >
-                          <p className="font-medium text-gray-900">{customer.name}</p>
-                          <p className="text-sm text-gray-600">{customer.phone}</p>
-                          {customer.email && (
-                            <p className="text-xs text-gray-500">{customer.email}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Check className="h-5 w-5 text-amber-500" />
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCustomerToDelete(customer);
-                            }}
-                            className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                            title="Delete customer"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
+                {customers.map((customer) => (
+                  <div
+                    key={customer.id}
+                    onClick={() => {
+                      onSelect(customer);
+                      onClose();
+                    }}
+                    className="p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-amber-50 hover:border-amber-300 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-gray-900">{customer.name}</p>
+                        <p className="text-sm text-gray-600">{customer.phone}</p>
                       </div>
+                      <Check className="h-5 w-5 text-amber-500" />
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500">
-                      {customerSearchTerm ? 'No customers found matching your search' : 'No customers found'}
-                    </p>
                   </div>
-                )}
+                ))}
               </div>
             </div>
-            )}
           </div>
         </div>
       </div>
-
-      {/* Delete Customer Confirmation Modal */}
-      {customerToDelete && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[60]">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="p-6 border-b border-gray-300">
-              <h3 className="text-lg font-bold text-gray-900">Delete Customer</h3>
-            </div>
-            <div className="p-6">
-              <p className="text-gray-700 mb-4">
-                Are you sure you want to delete <span className="font-semibold">{customerToDelete.name}</span>? This action cannot be undone.
-              </p>
-              <div className="flex space-x-3 justify-end">
-                <button
-                  onClick={() => setCustomerToDelete(null)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDeleteCustomer}
-                  className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
     );
   };
 
@@ -1210,20 +932,6 @@ const Billing: React.FC = () => {
       (product.huid && product.huid.toLowerCase().includes(lowerSearchTerm))
     );
   }, [products, searchTerm]);
-
-  // Filter customers based on search term in Customer Information section
-  const filteredCustomersList = useMemo(() => {
-    if (!customerFilter.trim()) {
-      // Show first 10 customers if no filter and dropdown is open
-      return showCustomerDropdown ? customers.slice(0, 10) : [];
-    }
-    const searchLower = customerFilter.toLowerCase().trim();
-    return customers.filter(customer =>
-      customer.name?.toLowerCase().includes(searchLower) ||
-      customer.phone?.toLowerCase().includes(searchLower) ||
-      customer.email?.toLowerCase().includes(searchLower)
-    ).slice(0, 10); // Limit to 10 results
-  }, [customers, customerFilter, showCustomerDropdown]);
 
   const generateBillPDF = (bill: Bill) => {
     try {
@@ -1386,12 +1094,7 @@ const Billing: React.FC = () => {
 
     yPosition += (isExchange && (bill as any).old_gold_weight ? 75 : 60);
 
-    // First dotted line
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
-    }
+    // Dotted line removed - template image already has lines
     yPosition += 15;
 
     // Items table header
@@ -1423,10 +1126,7 @@ const Billing: React.FC = () => {
 
     yPosition += 10;
 
-    // Second dotted line
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
-    }
+    // Dotted line removed - template image already has lines
     yPosition += 15;
 
     // Summary section
@@ -1450,12 +1150,7 @@ const Billing: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
 
-    // Signature lines (right side)
-    const signatureY = watermarkY + 20;
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
-    doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
+    // Signature lines removed - template image already has them
 
     // Footer messages (exact Tamil text)
     const footerY = pageHeight - 25;
@@ -1475,230 +1170,524 @@ const Billing: React.FC = () => {
     }
   };
 
-  const generateInvoicePDF = (invoice: Invoice) => {
+  const generateInvoicePDF = async (invoice: Invoice) => {
     try {
       if (!invoice) {
         error('Invalid invoice data');
         return;
       }
 
+      // If invoice doesn't have items, fetch the full invoice with items
+      let invoiceWithItems = invoice;
+      if (!invoice.items || !Array.isArray(invoice.items) || invoice.items.length === 0) {
+        console.log('Invoice missing items, fetching full invoice with items...');
+        console.log('Invoice ID:', invoice.id, 'Type:', typeof invoice.id);
+        try {
+          // Ensure ID is converted to string for the API call (backend will convert to int)
+          const invoiceId = String(invoice.id);
+          console.log('Fetching invoice with ID:', invoiceId);
+          const fullInvoice = await Database.getInstance().getInvoice(invoiceId);
+          console.log('Fetched invoice response:', fullInvoice);
+          if (fullInvoice) {
+            // Always use the fetched invoice, even if items are empty (backend ensures items array exists)
+            invoiceWithItems = fullInvoice;
+            if (fullInvoice.items && Array.isArray(fullInvoice.items) && fullInvoice.items.length > 0) {
+              console.log('Fetched invoice with items:', fullInvoice.items.length);
+            } else {
+              console.warn('Fetched invoice but items array is empty');
+              console.log('Invoice has subtotal:', fullInvoice.subtotal, 'total_amount:', fullInvoice.total_amount);
+              console.log('This suggests items may not have been saved when invoice was created');
+            }
+          } else {
+            console.warn('Failed to fetch invoice - response was null');
+          }
+        } catch (fetchError) {
+          console.error('Error fetching invoice with items:', fetchError);
+          console.error('Error details:', fetchError);
+          // Continue with original invoice
+        }
+      }
+
+      // Debug: Log the entire invoice object to see its structure
+      console.log('=== INVOICE PDF GENERATION DEBUG ===');
+      console.log('Full invoice object:', JSON.stringify(invoiceWithItems, null, 2));
+      console.log('Invoice items:', invoiceWithItems.items);
+      console.log('Items type:', typeof invoiceWithItems.items);
+      console.log('Is array?', Array.isArray(invoiceWithItems.items));
+      console.log('Items length:', invoiceWithItems.items?.length);
+      console.log('Invoice keys:', Object.keys(invoiceWithItems));
+      console.log('====================================');
+      
+      // Use invoiceWithItems instead of invoice from now on
+      const invoiceToUse = invoiceWithItems;
+
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 20;
-    let yPosition = 25;
+    // NOTE: Borders are already in the template image - do NOT draw them again
+    // The template image contains all borders, headers, logos, and static elements
 
-    // Add gold/brown border strips (exact template colors)
-    doc.setFillColor(218, 165, 32); // Gold color for borders
-    doc.rect(0, 0, 10, pageHeight, 'F'); // Left border
-    doc.rect(pageWidth - 10, 0, 10, pageHeight, 'F'); // Right border
-    doc.rect(0, 0, pageWidth, 10, 'F'); // Top border
-    doc.rect(0, pageHeight - 10, pageWidth, 10, 'F'); // Bottom border
-
-    // Header with Tamil text (exact template text)
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('ஸ்ரீ காத்தாயி அம்மன் துணை', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 8;
-    doc.text('வர்ணமிகு நகைகளுக்கு', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 15;
-
-    // Left side business details (exact template layout)
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
+    // Load and add invoice background image as centered watermark with opacity
+    // This should be drawn BEFORE content so it appears behind everything
+    let imageDataUrl: string | null = null;
+    try {
+      // Try multiple possible paths for the sample invoice image (Vite serves from public folder)
+      const possiblePaths = [
+        '/assets/sample-invoice.png',  // Sample invoice template (primary)
+        '/assets/vannaMayil-invoice.jpeg',  // Fallback to original
+        '/sample-invoice.png',  // Root public folder
+        '/vannaMayil-invoice.jpeg',  // Root public folder fallback
+        './assets/sample-invoice.png',
+        'assets/sample-invoice.png'
+      ];
+      
+      for (const imagePath of possiblePaths) {
+        try {
+          console.log('Trying to load image from:', imagePath);
+          const response = await fetch(imagePath);
+          if (response.ok) {
+            console.log('Image found at:', imagePath);
+            const blob = await response.blob();
+            imageDataUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+            break;
+          } else {
+            console.log('Image not found at:', imagePath, 'Status:', response.status);
+          }
+        } catch (e) {
+          console.log('Error loading image from:', imagePath, e);
+          // Try next path
+          continue;
+        }
+      }
+      
+      if (imageDataUrl) {
+        console.log('Background image loaded successfully, adding to PDF...');
+        // Store imageDataUrl in a const to avoid null check issues
+        const currentImageDataUrl = imageDataUrl;
+        // Add background image as full-page background with reduced opacity
+        // The background image contains all the Tamil text and logos already rendered
+        await new Promise<void>((resolve) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                // Fill with white background first
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw the sample invoice template as the base - but we'll draw data sections ourselves
+                // Use the template for header, footer, borders, and watermark only
+                // We'll draw customer info, items table, and summary sections without grey boxes
+                ctx.globalAlpha = 1.0; // Full opacity - this is the actual invoice template
+                ctx.drawImage(img, 0, 0);
+                ctx.globalAlpha = 1.0; // Reset
+                
+                // Use PNG format for sample invoice, JPEG for fallback
+                const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
+                const templateImageDataUrl = canvas.toDataURL(imageFormat === 'PNG' ? 'image/png' : 'image/jpeg', 1.0);
+                // Add the template as the base layer - full page at (0,0) for proper border alignment
+                // Template image should already be A4 size, so use it at full page dimensions
+                doc.addImage(templateImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
+                console.log('Background image added to PDF successfully');
+              }
+            } catch (canvasError) {
+              console.error('Canvas operation failed, adding image without opacity:', canvasError);
+              // Fallback: add image without opacity - full page since template includes borders
+              if (currentImageDataUrl) {
+                const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
+                // Template includes borders, so place at origin (0,0) at full page size
+                doc.addImage(currentImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
+              }
+            }
+            resolve();
+          };
+          img.onerror = (error) => {
+            console.error('Failed to load image for watermark:', error);
+            console.error('Image src was:', currentImageDataUrl.substring(0, 100));
+            resolve();
+          };
+          img.src = currentImageDataUrl;
+        });
+      }
+    } catch (bgError) {
+      console.error('Could not load invoice background image:', bgError);
+      // Background image is optional, continue without it
+    }
     
-    // B15 Logo placeholder (blue triangle)
-    doc.setFillColor(0, 0, 255); // Blue color
-    doc.rect(margin, yPosition, 8, 8, 'F');
-    doc.setFillColor(255, 255, 255); // White text
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'bold');
-    doc.text('B15', margin + 2, yPosition + 6);
-    
-    // Reset font
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    
-    doc.text('GSTIN: 33DIZPK7238G1ZP', margin, yPosition + 12);
-    doc.text('Mobile: 98432 95615', margin, yPosition + 20);
-    doc.text('Address: அகரம் சீகூர்', margin, yPosition + 28);
-    doc.text('(பார்டர்) - 621 108.', margin, yPosition + 36);
-    doc.text('பெரம்பலூர் Dt.', margin, yPosition + 44);
-
-    // Right side branding (exact template layout)
-    // VKV Logo placeholder (circular with yellow/red)
-    const logoX = pageWidth - margin - 25;
-    doc.setFillColor(255, 255, 0); // Yellow outer ring
-    doc.circle(logoX, yPosition + 10, 8, 'F');
-    doc.setFillColor(255, 0, 0); // Red inner circle
-    doc.circle(logoX, yPosition + 10, 6, 'F');
-    doc.setFillColor(255, 255, 255); // White text
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'bold');
-    doc.text('VKV', logoX - 2, yPosition + 12);
-    
-    // Tamil words below logo
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'normal');
-    doc.text('நம்பிக்கை', logoX - 4, yPosition + 18);
-    doc.text('தரம்', logoX - 2, yPosition + 24);
-    
-    // Company name (exact Tamil text)
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('ஸ்ரீ வண்ணமயில்', pageWidth - margin, yPosition + 35, { align: 'right' });
-    doc.text('தங்கமாளிகை', pageWidth - margin, yPosition + 45, { align: 'right' });
-    
-    // Slogan in red
-    doc.setFillColor(255, 0, 0); // Red text
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
-
-    yPosition += 70;
-
-    // Invoice Details section header (light gray box)
-    doc.setFillColor(240, 240, 240);
-    doc.rect(margin, yPosition, pageWidth - 2 * margin, 15, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
-    yPosition += 20;
-
-    // Customer information box (left side)
-    doc.setFillColor(240, 240, 240);
-    doc.rect(margin, yPosition, 120, 45, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Customer Name & address', margin + 5, yPosition + 8);
-    doc.setFont('helvetica', 'normal');
-    doc.text(invoice.customer_name || '', margin + 5, yPosition + 18);
-    if (invoice.customer_phone) {
-      doc.text(`Phone: ${invoice.customer_phone}`, margin + 5, yPosition + 28);
+    if (!imageDataUrl) {
+      console.warn('WARNING: Background image not loaded! Invoice will not match template.');
     }
 
-    // Right side boxes (DATE, Time, NO)
-    const rightBoxX = pageWidth - margin - 80;
-    const boxWidth = 80;
-    const boxHeight = 12;
+    // IMPORTANT: The sample invoice template image contains ALL static elements:
+    // - Header with "2", Tamil text, BIS logo, peacock logo, company name
+    // - "Invoice Details" header box
+    // - Customer info box structure and label
+    // - DATE/Time/NO boxes structure and labels
+    // - All dotted lines
+    // - Table headers (Qty, Description, Rate, Gross Wt.)
+    // - Summary section labels
+    // - Footer with gold bar and Tamil text
+    // - Central watermark logo
+    //
+    // We ONLY add DYNAMIC content in exact positions to match template:
     
-    // DATE box
-    doc.setFillColor(240, 240, 240);
-    doc.rect(rightBoxX, yPosition, boxWidth, boxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('DATE', rightBoxX + 5, yPosition + 8);
-    doc.setFont('helvetica', 'normal');
-    const invoiceDate = invoice.created_at ? new Date(invoice.created_at) : new Date();
-    doc.text(invoiceDate.toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
+    // Invoice number removed from top - now only shown in Invoice Details section
     
-    // Time box
-    doc.setFillColor(240, 240, 240);
-    doc.rect(rightBoxX, yPosition + 15, boxWidth, boxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFont('helvetica', 'bold');
-    doc.text('Time', rightBoxX + 5, yPosition + 23);
-    doc.setFont('helvetica', 'normal');
-    doc.text(invoiceDate.toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
+    // Customer information - show data directly WITHOUT grey boxes
+    // Position aligned with template - centered properly
+    const customerInfoY = 95; // Y position for customer information section
+    const customerBoxWidth = 120;
+    const customerBoxHeight = 45;
+    const customerInfoX = margin + 5; // Left side position for customer info
     
-    // NO box
-    doc.setFillColor(240, 240, 240);
-    doc.rect(rightBoxX, yPosition + 30, boxWidth, boxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
+    // Cover ONLY the grey box area with white (precise coverage)
+    doc.setFillColor(255, 255, 255);
+    doc.rect(customerInfoX - 5, customerInfoY - 8, customerBoxWidth, customerBoxHeight + 5, 'F');
+    
+    // Now add customer information without grey box - properly centered and aligned
+    doc.setFontSize(10); // Slightly larger for better readability
     doc.setFont('helvetica', 'bold');
-    doc.text('NO', rightBoxX + 5, yPosition + 38);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Customer Name & address', customerInfoX, customerInfoY);
+    
+    // Customer data - normal font, properly spaced and clear
     doc.setFont('helvetica', 'normal');
-    doc.text(invoice.invoice_number || '', rightBoxX + 5, yPosition + 48);
-
-    yPosition += 60;
-
-    // First dotted line
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
+    doc.setFontSize(10); // Slightly larger for clarity
+    doc.setTextColor(0, 0, 0); // Ensure black text
+    const customerName = invoiceToUse.customer_name || '';
+    if (customerName) {
+      doc.text(customerName, customerInfoX, customerInfoY + 13);
     }
-    yPosition += 15;
-
-    // Items table header
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    const colPositions = [margin + 5, margin + 30, margin + 95, margin + 130, margin + 165, margin + 190];
     
-    doc.text('Qty', colPositions[0], yPosition);
-    doc.text('Description', colPositions[1], yPosition);
-    doc.text('HSN/SAC', colPositions[2], yPosition);
-    doc.text('Rate', colPositions[3], yPosition);
-    doc.text('Gross Wt.', colPositions[4], yPosition);
-    doc.text('Taxable Amount', colPositions[5], yPosition);
-    yPosition += 10;
-
-    // Items table data
-    doc.setFont('helvetica', 'normal');
-    if (invoice.items && Array.isArray(invoice.items)) {
-      invoice.items.forEach((item: any) => {
-        doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
-        doc.text(item.product_name || 'N/A', colPositions[1], yPosition);
-        doc.text('711319', colPositions[2], yPosition); // HSN code for gold jewelry
-        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, colPositions[3], yPosition);
-        doc.text(item.weight?.toString() || '0', colPositions[4], yPosition);
-        doc.text(`₹${item.total?.toLocaleString() || '0'}`, colPositions[5], yPosition);
-        yPosition += 8;
+    // Customer address - if provided, properly formatted and clear
+    if (invoiceToUse.customer_address) {
+      const addressLines = doc.splitTextToSize(invoiceToUse.customer_address, 100);
+      let addressY = customerInfoY + 24;
+      addressLines.forEach((line: string, idx: number) => {
+        if (idx < 2) { // Limit to 2 lines
+          doc.text(line, customerInfoX, addressY);
+          addressY += 10;
+        }
       });
     }
-
-    yPosition += 10;
-
-    // Second dotted line
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
-    }
-    yPosition += 15;
-
-    // Summary section
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text(`Total Qty: ${invoice.items?.length || 0}`, margin + 5, yPosition);
-    doc.text(`Total Gross Weight: ${invoice.items?.reduce((sum: number, item: any) => sum + (item.weight || 0), 0).toFixed(3) || '0'}`, margin + 5, yPosition + 8);
-    doc.text(`Total Taxable Amount: ₹${invoice.subtotal?.toLocaleString() || '0'}`, margin + 5, yPosition + 16);
     
-    if (invoice.discount_amount && invoice.discount_amount > 0) {
-      doc.text(`Less Special Discount Rs 50/-PER GMS: ₹${Math.round(invoice.discount_amount)}`, margin + 5, yPosition + 24);
-      yPosition += 8;
+    // Customer phone - properly positioned and clear
+    if (invoiceToUse.customer_phone) {
+      let phoneY = customerInfoY + 24;
+      if (invoiceToUse.customer_address) {
+        const addressLines = doc.splitTextToSize(invoiceToUse.customer_address, 100);
+        phoneY = customerInfoY + 24 + (Math.min(addressLines.length, 2) * 10);
+      }
+      doc.text(`Phone: ${invoiceToUse.customer_phone}`, customerInfoX, phoneY);
     }
+
+    // Invoice date, time, and number - show data directly WITHOUT grey boxes
+    // Place DATE and Time parallel (same line), NO and invoice number parallel (same line)
+    const rightInfoX = pageWidth - margin - 80;
+    const invoiceDate = invoiceToUse.created_at ? new Date(invoiceToUse.created_at) : new Date();
+    const dateBoxWidth = 80;
     
-    doc.text(`Net Amount: ₹${invoice.total_amount?.toLocaleString() || '0'}`, margin + 5, yPosition + 32);
-
-    // Peacock watermark (simplified version)
-    const watermarkY = pageHeight - 80;
-    doc.setFillColor(240, 240, 240, 0.3); // Semi-transparent gray
-    doc.setFontSize(60);
+    // Cover ONLY the grey boxes area with white (precise coverage)
+    doc.setFillColor(255, 255, 255);
+    doc.rect(rightInfoX - 5, customerInfoY - 8, dateBoxWidth + 10, 40, 'F');
+    
+    // First line: DATE and Time parallel
+    doc.setFontSize(10); // Slightly larger for better readability
     doc.setFont('helvetica', 'bold');
-    doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
-
-    // Signature lines (right side)
-    const signatureY = watermarkY + 20;
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
-    doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
-
-    // Footer messages (exact Tamil text)
-    const footerY = pageHeight - 25;
-    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    
+    // DATE label and value on left side of line
+    doc.text('DATE', rightInfoX, customerInfoY);
     doc.setFont('helvetica', 'normal');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.text('உங்களது வளர்ச்சி!', margin + 5, footerY);
-    doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
+    doc.setFontSize(10);
+    const dateStr = invoiceDate.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const dateLabelWidth = doc.getTextWidth('DATE');
+    doc.text(dateStr, rightInfoX + dateLabelWidth + 5, customerInfoY);
+    
+    // Time label and value on right side of same line
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    const timeLabelX = rightInfoX + 50; // Position Time to the right of DATE
+    doc.text('Time', timeLabelX, customerInfoY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    const timeStr = invoiceDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    const timeLabelWidth = doc.getTextWidth('Time');
+    doc.text(timeStr, timeLabelX + timeLabelWidth + 5, customerInfoY);
+    
+    // Second line: NO and invoice number parallel
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('NO', rightInfoX, customerInfoY + 18); // More spacing
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    const invNumber = invoiceToUse.invoice_number || '';
+    const noLabelWidth = doc.getTextWidth('NO');
+    doc.text(invNumber, rightInfoX + noLabelWidth + 5, customerInfoY + 18);
+
+    // Products list - show product data clearly above the watermark logo
+    // Position products in the center area, above watermark
+    // For A4: pageHeight = 297mm, watermark center is around 148mm
+    // Invoice details section: customerInfoY = 95mm, invoice number ends at 95 + 60 = 155mm
+    // Products should be AFTER invoice details section and BEFORE watermark
+    // Watermark center is 148mm, so watermark top edge is approximately 120-130mm (assuming ~30mm radius)
+    // So products should be: start after invoice (165mm+) but this conflicts with watermark at 148mm
+    // Actually, the watermark is a large circle, so its TOP might be around 100-110mm
+    // Products should be between invoice end (160mm) and watermark top (110mm) - impossible!
+    // Re-evaluating: Products should be BELOW invoice details and ABOVE watermark center
+    // Since invoice ends at 155mm and watermark center is 148mm, there's overlap
+    // The solution: products should be in the space between invoice details and watermark
+    // If watermark is large, its top might be 100mm, so products at 110-140mm would work
+    // But user says products are above customer info (95mm), so current 110mm is too high
+    // Move products DOWN to after invoice details: start at 170mm, but watermark is at 148mm - conflict!
+    // I think the watermark might be LOWER than center, or invoice details are HIGHER
+    // Let's use: start at 170mm (well after invoice at 155mm), stop at 200mm (well before page end)
+    // Actually, user wants products ABOVE watermark, so they should be LOWER Y values (higher on page)
+    // Watermark center 148mm means products should be above that, so Y < 148mm
+    // Invoice ends at 155mm, so products between 160mm and 148mm is impossible
+    // Solution: Products should be at 120-140mm range (above watermark center at 148mm)
+    // Products list - show product data clearly above the watermark logo
+    // Position products AFTER invoice details section and ABOVE watermark
+    // In PDF, Y=0 is top, Y increases downward
+    // Customer info: 95mm, Invoice number ends: 95 + 60 = 155mm
+    // Watermark center: pageHeight/2 = 148mm (for A4)
+    // The user says products are "below" - they want products AFTER invoice details (after 155mm)
+    // But also ABOVE watermark - this means products should be in the area above the watermark visually
+    // Since invoice ends at 155mm and watermark center is 148mm, there's a conflict
+    // Solution: Place products starting RIGHT AFTER invoice details (165mm) 
+    // The watermark is a large circle, so its visible area might extend, but products at 165mm+ will be
+    // in the area between invoice details and the lower part of the watermark
+    // Actually, "above watermark" might mean products should be visible in the upper area of the page
+    // Let's place products starting at 165mm (clearly after invoice at 155mm) and allow them to go up to 200mm
+    // Products list - place products BELOW the invoice details line
+    // Invoice number ends at customerInfoY + 60 = 95 + 60 = 155mm
+    // Add spacing for the dotted line that separates invoice details from products
+    // Then start products below that line
+    const invoiceDetailsEndY = customerInfoY + 60; // Invoice number ends at 155mm
+    const dottedLineY = invoiceDetailsEndY + 10; // Dotted line after invoice details (around 165mm)
+    const productsStartY = dottedLineY + 8; // Start products below the dotted line (around 173mm)
+    const watermarkCenterY = pageHeight / 2; // Watermark center (around 148mm for A4)
+    // Products should be above watermark, so stop before watermark becomes too prominent
+    // Watermark is large, so its top might be around 100-110mm, but center is 148mm
+    // Since products start at 173mm (below invoice), they'll be in the area above watermark
+    const maxProductsY = 240; // Allow products to extend, but stop before page end
+    
+    let itemY = productsStartY;
+    
+    // Check if items exist and are valid - handle multiple possible structures
+    let itemsToProcess: any[] = [];
+    
+    // Try different possible item property names
+    if (invoiceToUse.items && Array.isArray(invoiceToUse.items) && invoiceToUse.items.length > 0) {
+      itemsToProcess = invoiceToUse.items;
+    } else if ((invoiceToUse as any).invoice_items && Array.isArray((invoiceToUse as any).invoice_items)) {
+      itemsToProcess = (invoiceToUse as any).invoice_items;
+    } else if ((invoiceToUse as any).products && Array.isArray((invoiceToUse as any).products)) {
+      itemsToProcess = (invoiceToUse as any).products;
+    }
+    
+    console.log('=== PRODUCT DISPLAY DEBUG ===');
+    console.log('Items to process:', itemsToProcess);
+    console.log('Items count:', itemsToProcess.length);
+    console.log('Products start Y:', productsStartY);
+    console.log('Max products Y:', maxProductsY);
+    console.log('Watermark center Y:', watermarkCenterY);
+    
+    if (itemsToProcess && itemsToProcess.length > 0) {
+      console.log('Processing items:', itemsToProcess.length);
+      console.log('Items data:', JSON.stringify(itemsToProcess, null, 2));
+      
+      // Table setup
+      const tableStartX = margin + 10;
+      const tableWidth = pageWidth - (2 * margin) - 20;
+      const colWidths = {
+        qty: 20,
+        description: tableWidth - 20 - 30 - 40 - 40, // Remaining space after other columns
+        weight: 30,
+        rate: 40,
+        total: 40
+      };
+      
+      const colPositions = {
+        qty: tableStartX,
+        description: tableStartX + colWidths.qty,
+        weight: tableStartX + colWidths.qty + colWidths.description,
+        rate: tableStartX + colWidths.qty + colWidths.description + colWidths.weight,
+        total: tableStartX + colWidths.qty + colWidths.description + colWidths.weight + colWidths.rate
+      };
+      
+      const rowHeight = 10;
+      let currentY = itemY;
+      
+      // Table header - place headings on the template's existing header lines
+      // The template image already has the header lines/boxes, we just add the text
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11); // Slightly larger for better readability
+      doc.setTextColor(0, 0, 0);
+      
+      // Header text - placed on template's existing header lines
+      doc.text('Qty', colPositions.qty + 2, currentY);
+      doc.text('Description', colPositions.description + 2, currentY);
+      doc.text('Weight', colPositions.weight + 2, currentY);
+      doc.text('Rate', colPositions.rate + 2, currentY);
+      doc.text('Total', colPositions.total + 2, currentY);
+      
+      currentY += rowHeight + 5; // More spacing for cleaner look
+      
+      // Table rows
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10); // Slightly larger for better readability
+      
+      let totalQty = 0;
+      let totalWeight = 0;
+      let grandTotal = 0;
+      
+      itemsToProcess.forEach((item: any) => {
+        // Stop if we're getting too close to watermark
+        if (currentY > maxProductsY) {
+          console.log(`Reached watermark area at Y=${currentY}, stopping product display`);
+          return; // Stop adding more products
+        }
+        
+        // Get product details
+        const productName = item.product_name || item.name || item.description || 'N/A';
+        const qty = parseInt(String(item.quantity || item.qty || 1));
+        const rate = parseFloat(String(item.rate || item.price || 0));
+        const weight = parseFloat(String(item.weight || item.gross_weight || 0));
+        const total = parseFloat(String(item.total || (rate * (weight > 0 ? weight : qty))));
+        
+        // Accumulate totals
+        totalQty += qty;
+        totalWeight += weight;
+        grandTotal += total;
+        
+        // Draw row data
+        doc.text(String(qty), colPositions.qty + 2, currentY);
+        
+        // Description - may wrap
+        const descLines = doc.splitTextToSize(productName, colWidths.description - 4);
+        descLines.forEach((line: string, lineIdx: number) => {
+          doc.text(line, colPositions.description + 2, currentY + (lineIdx * 7));
+        });
+        
+        if (weight > 0) {
+          doc.text(weight.toFixed(3), colPositions.weight + 2, currentY);
+        } else {
+          doc.text('-', colPositions.weight + 2, currentY);
+        }
+        
+        doc.text(`₹${rate.toLocaleString('en-IN')}`, colPositions.rate + 2, currentY);
+        doc.text(`₹${total.toLocaleString('en-IN')}`, colPositions.total + 2, currentY);
+        
+        // Move to next row - account for wrapped description
+        currentY += Math.max(rowHeight, descLines.length * 7) + 2;
+        
+        // Row separator removed - template image already has lines
+      });
+      
+      // Summary totals - place values on the right side lines (as per template)
+      // The template image already has the labels on the left, we place values on the right
+      const summaryRightX = pageWidth - margin - 75; // Right side position for summary values
+      const summaryStartY = currentY + 20; // More spacing for cleaner look
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11); // Slightly larger for emphasis
+      doc.setTextColor(0, 0, 0);
+      
+      // Total Qty value - placed on right side line
+      doc.text(String(totalQty), summaryRightX, summaryStartY);
+      
+      // Total Gross Weight value - placed on right side line
+      doc.text(totalWeight > 0 ? totalWeight.toFixed(3) : '0.000', summaryRightX, summaryStartY + 10);
+      
+      // Total Taxable Amount value - placed on right side line
+      const subtotal = parseFloat(String(invoiceToUse.subtotal || grandTotal));
+      doc.text(`₹${subtotal.toLocaleString('en-IN')}`, summaryRightX, summaryStartY + 20);
+      
+      // Less Special Discount (if applicable) - placed on right side line
+      if (invoiceToUse.discount_amount && invoiceToUse.discount_amount > 0) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(11);
+        const discount = Math.round(parseFloat(invoiceToUse.discount_amount.toString()));
+        doc.text(`₹${discount.toLocaleString('en-IN')}`, summaryRightX, summaryStartY + 30);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+      }
+      
+      // Net Amount value - placed on right side line (most prominent)
+      const totalAmount = parseFloat(String(invoiceToUse.total_amount || grandTotal));
+      doc.setFontSize(12); // Larger for Net Amount emphasis
+      doc.text(`₹${totalAmount.toLocaleString('en-IN')}`, summaryRightX, summaryStartY + 40);
+      
+      itemY = summaryStartY + 50;
+      
+      console.log('=== FINISHED DRAWING PRODUCTS TABLE ===');
+      console.log(`Total items drawn: ${itemsToProcess.length}`);
+      console.log(`Final Y position: ${itemY}`);
+    } else {
+      // No items - show message clearly with debug info
+      console.log('=== NO ITEMS FOUND ===');
+      console.log('Invoice object:', invoiceToUse);
+      console.log('Invoice.items:', invoiceToUse.items);
+      console.log('Invoice type:', typeof invoiceToUse);
+      console.log('All invoice keys:', Object.keys(invoiceToUse));
+      console.log('Invoice has subtotal:', invoiceToUse.subtotal);
+      console.log('Invoice has total_amount:', invoiceToUse.total_amount);
+      console.log('=====================');
+      
+      // If invoice has totals but no items, show a summary line
+      if (invoiceToUse.subtotal > 0 || invoiceToUse.total_amount > 0) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(100, 100, 100);
+        const summaryText = `Invoice Total: ₹${(invoiceToUse.total_amount || invoiceToUse.subtotal || 0).toLocaleString('en-IN')}`;
+        const summaryWidth = doc.getTextWidth(summaryText);
+        const summaryX = (pageWidth - summaryWidth) / 2;
+        doc.text(summaryText, summaryX, itemY);
+        doc.setTextColor(0, 0, 0);
+        itemY += 15;
+        
+        doc.setFontSize(9);
+        doc.setTextColor(150, 150, 150);
+        const noteText = 'Item details not available';
+        const noteWidth = doc.getTextWidth(noteText);
+        const noteX = (pageWidth - noteWidth) / 2;
+        doc.text(noteText, noteX, itemY);
+        doc.setTextColor(0, 0, 0);
+        itemY += 20;
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(11);
+        doc.setTextColor(100, 100, 100);
+        const noItemsText = 'No items in this invoice';
+        const noItemsWidth = doc.getTextWidth(noItemsText);
+        const noItemsX = (pageWidth - noItemsWidth) / 2; // Center the text
+        doc.text(noItemsText, noItemsX, itemY);
+        doc.setTextColor(0, 0, 0);
+        itemY += 25;
+      }
+    }
+
+    // Summary section - DO NOT draw summary values
+    // The template image already contains all summary values (Total Qty, Total Weight, Total Amount, etc.)
+    // We only display product data above the watermark, summary values are in the template
+
+    // Note: Signature lines, central watermark logo, and footer are all in the template image
+    // No need to draw them separately - template image has everything
 
     // Download
-      const invoiceNumber = invoice.invoice_number || 'INV-UNKNOWN';
-      doc.save(`Invoice-${invoiceNumber}.pdf`);
+      const invNum = invoiceToUse.invoice_number || 'INV-UNKNOWN';
+      doc.save(`Invoice-${invNum}.pdf`);
     success('Invoice PDF downloaded successfully!');
     } catch (err) {
       console.error('Error generating invoice PDF:', err);
@@ -2286,28 +2275,13 @@ const Billing: React.FC = () => {
                 <User className="h-5 w-5 text-amber-500" />
                 <h2 className="text-lg font-semibold text-gray-900">{t('billing.customerInformation')}</h2>
               </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => {
-                    setCustomerModalInitialView('add');
-                    setShowCustomerModal(true);
-                  }}
-                  className="flex items-center space-x-2 px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>{t('billing.addCustomer')}</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setCustomerModalInitialView('list');
-                    setShowCustomerModal(true);
-                  }}
-                  className="flex items-center space-x-2 px-3 py-2 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors"
-                >
-                  <User className="h-4 w-4" />
-                  <span>{t('billing.selectCustomer')}</span>
-                </button>
-              </div>
+              <button
+                onClick={() => setShowCustomerModal(true)}
+                className="flex items-center space-x-2 px-3 py-2 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors"
+              >
+                <User className="h-4 w-4" />
+                <span>{t('billing.selectCustomer')}</span>
+              </button>
             </div>
             
             {selectedCustomer ? (
@@ -2320,84 +2294,28 @@ const Billing: React.FC = () => {
                   )}
                 </div>
                 <button
-                  onClick={() => {
-                    setSelectedCustomer(null);
-                    setCustomerFilter('');
-                    setShowCustomerDropdown(false);
-                  }}
+                  onClick={() => setSelectedCustomer(null)}
                   className="text-amber-600 hover:text-amber-700"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
             ) : (
-              <div className="space-y-4">
-                {/* Customer Filter/Search */}
-                <div className="relative customer-filter-container">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search customer by name, phone, or email..."
-                    value={customerFilter}
-                    onChange={(e) => {
-                      setCustomerFilter(e.target.value);
-                      if (e.target.value.trim().length > 0 || customers.length > 0) {
-                        setShowCustomerDropdown(true);
-                      }
-                    }}
-                    onFocus={() => {
-                      if (customers.length > 0) {
-                        setShowCustomerDropdown(true);
-                      }
-                    }}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  />
-                  {customerFilter && (
-                    <button
-                      onClick={() => {
-                        setCustomerFilter('');
-                        setShowCustomerDropdown(false);
-                      }}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                  
-                  {/* Customer Dropdown List */}
-                  {showCustomerDropdown && filteredCustomersList.length > 0 && (
-                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                      {filteredCustomersList.map((customer) => (
-                        <div
-                          key={customer.id}
-                          onClick={() => {
-                            setSelectedCustomer(customer);
-                            setCurrentBill(prev => ({
-                              ...prev,
-                              customer_name: customer.name,
-                              customer_phone: customer.phone || ''
-                            }));
-                            setCustomerFilter('');
-                            setShowCustomerDropdown(false);
-                          }}
-                          className="p-3 border-b border-gray-200 cursor-pointer hover:bg-amber-50 transition-colors last:border-b-0"
-                        >
-                          <p className="font-medium text-gray-900">{customer.name}</p>
-                          <p className="text-sm text-gray-600">{customer.phone}</p>
-                          {customer.email && (
-                            <p className="text-xs text-gray-500">{customer.email}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {showCustomerDropdown && customerFilter.trim().length > 0 && filteredCustomersList.length === 0 && (
-                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg p-4">
-                      <p className="text-sm text-gray-500 text-center">No customers found</p>
-                    </div>
-                  )}
-                </div>
+              <div className="grid grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  placeholder={t('billing.customerName')}
+                  value={currentBill.customer_name || ''}
+                  onChange={(e) => setCurrentBill(prev => ({ ...prev, customer_name: e.target.value }))}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                />
+                <input
+                  type="tel"
+                  placeholder={t('billing.phoneNumber')}
+                  value={currentBill.customer_phone || ''}
+                  onChange={(e) => setCurrentBill(prev => ({ ...prev, customer_phone: e.target.value }))}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                />
               </div>
             )}
           </div>
@@ -2440,37 +2358,21 @@ const Billing: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     {t('billing.weightGrams')} *
                   </label>
-                  <div className="flex flex-col space-y-1">
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={exchangeMaterial.oldMaterialWeight || ''}
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        if (!isNaN(value) && value >= 0) {
-                          setExchangeMaterial(prev => ({ ...prev, oldMaterialWeight: value }));
-                          if (exchangeFormErrors.oldMaterialWeight) {
-                            setExchangeFormErrors(prev => ({ ...prev, oldMaterialWeight: undefined }));
-                          }
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const value = parseFloat(e.target.value);
-                        if (e.target.value === '' || isNaN(value) || value <= 0) {
-                          setExchangeFormErrors(prev => ({ ...prev, oldMaterialWeight: t('billing.weightRequired') }));
-                        }
-                      }}
-                      onWheel={handleWheel}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 ${
-                        exchangeFormErrors.oldMaterialWeight ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder={t('billing.enterWeightGrams')}
-                    />
-                    {exchangeFormErrors.oldMaterialWeight && (
-                      <p className="text-xs text-red-600">{exchangeFormErrors.oldMaterialWeight}</p>
-                    )}
-                  </div>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={exchangeMaterial.oldMaterialWeight || ''}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value);
+                      if (!isNaN(value) && value >= 0) {
+                        setExchangeMaterial(prev => ({ ...prev, oldMaterialWeight: value }));
+                      }
+                    }}
+                    onWheel={handleWheel}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    placeholder={t('billing.enterWeightGrams')}
+                  />
                 </div>
                 
                 <div>
@@ -2492,43 +2394,28 @@ const Billing: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     {t('billing.oldMaterialRate')} *
                   </label>
-                  <div className="flex flex-col space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={exchangeMaterial.oldMaterialRate || ''}
-                        onChange={(e) => {
-                          const value = e.target.value === '' ? 0 : parseInt(e.target.value);
-                          if (!isNaN(value) && value >= 0) {
-                            setExchangeMaterial(prev => ({ ...prev, oldMaterialRate: value }));
-                            if (exchangeFormErrors.oldMaterialRate) {
-                              setExchangeFormErrors(prev => ({ ...prev, oldMaterialRate: undefined }));
-                            }
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value === '') {
-                            setExchangeMaterial(prev => ({ ...prev, oldMaterialRate: 0 }));
-                          } else {
-                            const value = parseInt(e.target.value);
-                            if (isNaN(value) || value <= 0) {
-                              setExchangeFormErrors(prev => ({ ...prev, oldMaterialRate: t('billing.rateRequired') }));
-                            }
-                          }
-                        }}
-                        onWheel={handleWheel}
-                        className={`flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm ${
-                          exchangeFormErrors.oldMaterialRate ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="0"
-                      />
-                      <span className="text-sm text-gray-600 font-medium">₹/g</span>
-                    </div>
-                    {exchangeFormErrors.oldMaterialRate && (
-                      <p className="text-xs text-red-600">{exchangeFormErrors.oldMaterialRate}</p>
-                    )}
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={exchangeMaterial.oldMaterialRate || ''}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? 0 : parseInt(e.target.value);
+                        if (!isNaN(value) && value >= 0) {
+                          setExchangeMaterial(prev => ({ ...prev, oldMaterialRate: value }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (e.target.value === '') {
+                          setExchangeMaterial(prev => ({ ...prev, oldMaterialRate: 0 }));
+                        }
+                      }}
+                      onWheel={handleWheel}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                      placeholder="0"
+                    />
+                    <span className="text-sm text-gray-600 font-medium">₹/g</span>
                   </div>
                 </div>
                 
@@ -2536,43 +2423,28 @@ const Billing: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     {t('billing.exchangeRate')} *
                   </label>
-                  <div className="flex flex-col space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={exchangeMaterial.exchangeRate || ''}
-                        onChange={(e) => {
-                          const value = e.target.value === '' ? 0 : parseInt(e.target.value);
-                          if (!isNaN(value) && value >= 0) {
-                            setExchangeMaterial(prev => ({ ...prev, exchangeRate: value }));
-                            if (exchangeFormErrors.exchangeRate) {
-                              setExchangeFormErrors(prev => ({ ...prev, exchangeRate: undefined }));
-                            }
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value === '') {
-                            setExchangeMaterial(prev => ({ ...prev, exchangeRate: 0 }));
-                          } else {
-                            const value = parseInt(e.target.value);
-                            if (isNaN(value) || value <= 0) {
-                              setExchangeFormErrors(prev => ({ ...prev, exchangeRate: t('billing.rateRequired') }));
-                            }
-                          }
-                        }}
-                        onWheel={handleWheel}
-                        className={`flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm ${
-                          exchangeFormErrors.exchangeRate ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="0"
-                      />
-                      <span className="text-sm text-gray-600 font-medium">₹/g</span>
-                    </div>
-                    {exchangeFormErrors.exchangeRate && (
-                      <p className="text-xs text-red-600">{exchangeFormErrors.exchangeRate}</p>
-                    )}
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={exchangeMaterial.exchangeRate || ''}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? 0 : parseInt(e.target.value);
+                        if (!isNaN(value) && value >= 0) {
+                          setExchangeMaterial(prev => ({ ...prev, exchangeRate: value }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (e.target.value === '') {
+                          setExchangeMaterial(prev => ({ ...prev, exchangeRate: 0 }));
+                        }
+                      }}
+                      onWheel={handleWheel}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                      placeholder="0"
+                    />
+                    <span className="text-sm text-gray-600 font-medium">₹/g</span>
                   </div>
                 </div>
               </div>
@@ -2785,109 +2657,71 @@ const Billing: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-4 py-3 align-middle">
-                        <div className="flex flex-col space-y-1">
-                          <div className="flex items-center space-x-1.5">
-                            <input
-                              type="number"
-                              min="0.01"
-                              step="0.01"
-                              value={item.weight || ''}
-                              onChange={(e) => {
-                                const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                                if (!isNaN(value) && value > 0) {
-                                  if (activeTab === 'exchange') {
-                                    updateExchangeItem(item.id, { weight: value });
-                                  } else {
-                                    updateBillItem(item.id, { weight: value });
-                                  }
-                                  // Clear error on valid input
-                                  if (itemErrors[item.id]?.weight) {
-                                    setItemErrors(prev => ({
-                                      ...prev,
-                                      [item.id]: { ...prev[item.id], weight: undefined }
-                                    }));
-                                  }
+                        <div className="flex items-center space-x-1.5">
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={item.weight || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                              if (!isNaN(value) && value > 0) {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { weight: value });
+                                } else {
+                                  updateBillItem(item.id, { weight: value });
                                 }
-                              }}
-                              onBlur={(e) => {
-                                const value = parseFloat(e.target.value);
-                                if (e.target.value === '' || isNaN(value) || value <= 0) {
-                                  const defaultValue = item.weight || 0.01;
-                                  if (activeTab === 'exchange') {
-                                    updateExchangeItem(item.id, { weight: defaultValue });
-                                  } else {
-                                    updateBillItem(item.id, { weight: defaultValue });
-                                  }
-                                  setItemErrors(prev => ({
-                                    ...prev,
-                                    [item.id]: { ...prev[item.id], weight: t('billing.weightRequired') }
-                                  }));
+                              }
+                            }}
+                            onBlur={(e) => {
+                              if (e.target.value === '' || parseFloat(e.target.value) <= 0) {
+                                const defaultValue = item.weight || 0.01;
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { weight: defaultValue });
+                                } else {
+                                  updateBillItem(item.id, { weight: defaultValue });
                                 }
-                              }}
-                              onWheel={handleWheel}
-                              className={`w-20 px-2 py-1.5 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm ${
-                                itemErrors[item.id]?.weight ? 'border-red-500' : 'border-gray-300'
-                              }`}
-                              placeholder="0.00"
-                            />
-                            <span className="text-sm text-gray-600 font-medium whitespace-nowrap">g</span>
-                          </div>
-                          {itemErrors[item.id]?.weight && (
-                            <p className="text-xs text-red-600">{itemErrors[item.id].weight}</p>
-                          )}
+                              }
+                            }}
+                            onWheel={handleWheel}
+                            className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            placeholder="0.00"
+                          />
+                          <span className="text-sm text-gray-600 font-medium whitespace-nowrap">g</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 align-middle">
-                        <div className="flex flex-col space-y-1">
-                          <div className="flex items-center space-x-1.5">
-                            <input
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={item.rate || ''}
-                              onChange={(e) => {
-                                const value = e.target.value === '' ? 0 : parseInt(e.target.value);
-                                if (!isNaN(value) && value > 0) {
-                                  if (activeTab === 'exchange') {
-                                    updateExchangeItem(item.id, { rate: value });
-                                  } else {
-                                    updateBillItem(item.id, { rate: value });
-                                  }
-                                  // Clear error on valid input
-                                  if (itemErrors[item.id]?.rate) {
-                                    setItemErrors(prev => ({
-                                      ...prev,
-                                      [item.id]: { ...prev[item.id], rate: undefined }
-                                    }));
-                                  }
+                        <div className="flex items-center space-x-1.5">
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={item.rate || ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? 0 : parseInt(e.target.value);
+                              if (!isNaN(value) && value > 0) {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { rate: value });
+                                } else {
+                                  updateBillItem(item.id, { rate: value });
                                 }
-                              }}
-                              onBlur={(e) => {
-                                const value = parseInt(e.target.value);
-                                if (e.target.value === '' || isNaN(value) || value <= 0) {
-                                  setItemErrors(prev => ({
-                                    ...prev,
-                                    [item.id]: { ...prev[item.id], rate: t('billing.rateRequired') }
-                                  }));
-                                  if (activeTab === 'exchange') {
-                                    updateExchangeItem(item.id, { rate: 0 });
-                                  } else {
-                                    updateBillItem(item.id, { rate: 0 });
-                                  }
+                              }
+                            }}
+                            onBlur={(e) => {
+                              if (e.target.value === '' || parseInt(e.target.value) <= 0) {
+                                if (activeTab === 'exchange') {
+                                  updateExchangeItem(item.id, { rate: 0 });
+                                } else {
+                                  updateBillItem(item.id, { rate: 0 });
                                 }
-                              }}
-                              onWheel={handleWheel}
-                              className={`w-24 px-2 py-1.5 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm ${
-                                itemErrors[item.id]?.rate ? 'border-red-500' : 'border-gray-300'
-                              }`}
-                              placeholder="0"
-                            />
-                            <span className="text-sm text-gray-500 font-semibold whitespace-nowrap">₹</span>
-                            <span className="text-sm text-gray-600 font-medium whitespace-nowrap">/g</span>
-                          </div>
-                          {itemErrors[item.id]?.rate && (
-                            <p className="text-xs text-red-600">{itemErrors[item.id].rate}</p>
-                          )}
+                              }
+                            }}
+                            onWheel={handleWheel}
+                            className="w-24 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                            placeholder="0"
+                          />
+                          <span className="text-sm text-gray-500 font-semibold whitespace-nowrap">₹</span>
+                          <span className="text-sm text-gray-600 font-medium whitespace-nowrap">/g</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 align-middle">
@@ -2957,7 +2791,7 @@ const Billing: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-4 py-3 align-middle">
-                        <div className="flex flex-col items-center space-y-1">
+                        <div className="flex items-center justify-center">
                           <input
                             type="number"
                             min="1"
@@ -2971,23 +2805,11 @@ const Billing: React.FC = () => {
                                 } else {
                                   updateBillItem(item.id, { quantity: value });
                                 }
-                                // Clear error on valid input
-                                if (itemErrors[item.id]?.quantity) {
-                                  setItemErrors(prev => ({
-                                    ...prev,
-                                    [item.id]: { ...prev[item.id], quantity: undefined }
-                                  }));
-                                }
                               }
                             }}
                             onBlur={(e) => {
-                              const value = parseInt(e.target.value);
-                              if (e.target.value === '' || isNaN(value) || value <= 0) {
+                              if (e.target.value === '' || parseInt(e.target.value) <= 0) {
                                 const defaultValue = item.quantity || 1;
-                                setItemErrors(prev => ({
-                                  ...prev,
-                                  [item.id]: { ...prev[item.id], quantity: t('billing.quantityRequired') }
-                                }));
                                 if (activeTab === 'exchange') {
                                   updateExchangeItem(item.id, { quantity: defaultValue });
                                 } else {
@@ -2996,14 +2818,9 @@ const Billing: React.FC = () => {
                               }
                             }}
                             onWheel={handleWheel}
-                            className={`w-16 px-2 py-1.5 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm text-center ${
-                              itemErrors[item.id]?.quantity ? 'border-red-500' : 'border-gray-300'
-                            }`}
+                            className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm text-center"
                             placeholder="1"
                           />
-                          {itemErrors[item.id]?.quantity && (
-                            <p className="text-xs text-red-600 text-center">{itemErrors[item.id].quantity}</p>
-                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 align-middle">
@@ -3133,45 +2950,28 @@ const Billing: React.FC = () => {
               
               <div className="flex justify-between items-center py-2 border-t border-gray-200">
                 <span className="text-sm font-medium text-gray-700">{t('billing.discount')}:</span>
-                <div className="flex flex-col items-end space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={currentBill.discount_amount || ''}
-                      onChange={(e) => {
-                        const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                        if (!isNaN(value) && value >= 0) {
-                          setCurrentBill(prev => ({ ...prev, discount_amount: value }));
-                          if (billFormErrors.discount_amount) {
-                            setBillFormErrors(prev => ({ ...prev, discount_amount: undefined }));
-                          }
-                        }
-                      }}
-                      onBlur={(e) => {
-                        if (e.target.value === '') {
-                          setCurrentBill(prev => ({ ...prev, discount_amount: 0 }));
-                        } else {
-                          const value = parseFloat(e.target.value);
-                          if (isNaN(value) || value < 0) {
-                            setBillFormErrors(prev => ({ ...prev, discount_amount: t('billing.discountAmountInvalid') }));
-                          } else if (value > (currentBill.subtotal || 0)) {
-                            setBillFormErrors(prev => ({ ...prev, discount_amount: t('billing.discountExceedsSubtotal') }));
-                          }
-                        }
-                      }}
-                      onWheel={handleWheel}
-                      className={`w-28 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm ${
-                        billFormErrors.discount_amount ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="0"
-                    />
-                    <span className="text-sm text-gray-600 font-medium">₹</span>
-                  </div>
-                  {billFormErrors.discount_amount && (
-                    <p className="text-xs text-red-600">{billFormErrors.discount_amount}</p>
-                  )}
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={currentBill.discount_amount || ''}
+                    onChange={(e) => {
+                      const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                      if (!isNaN(value) && value >= 0) {
+                        setCurrentBill(prev => ({ ...prev, discount_amount: value }));
+                      }
+                    }}
+                    onBlur={(e) => {
+                      if (e.target.value === '') {
+                        setCurrentBill(prev => ({ ...prev, discount_amount: 0 }));
+                      }
+                    }}
+                    onWheel={handleWheel}
+                    className="w-28 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                    placeholder="0"
+                  />
+                  <span className="text-sm text-gray-600 font-medium">₹</span>
                 </div>
               </div>
               
@@ -3182,40 +2982,24 @@ const Billing: React.FC = () => {
               
               <div className="flex justify-between items-center py-2 border-t border-gray-200">
                 <span className="text-sm font-medium text-gray-700">{t('billing.gst')}:</span>
-                <div className="flex flex-col items-end space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={Math.round(currentBill.tax_percentage || 3)}
-                      onChange={(e) => {
-                        const value = parseInt(e.target.value);
-                        if (!isNaN(value) && value >= 0 && value <= 100) {
-                          setCurrentBill(prev => ({ ...prev, tax_percentage: value }));
-                          if (billFormErrors.tax_percentage) {
-                            setBillFormErrors(prev => ({ ...prev, tax_percentage: undefined }));
-                          }
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const value = parseInt(e.target.value);
-                        if (isNaN(value) || value < 0 || value > 100) {
-                          setBillFormErrors(prev => ({ ...prev, tax_percentage: t('billing.taxPercentageInvalid') }));
-                        }
-                      }}
-                      onWheel={handleWheel}
-                      className={`w-20 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm text-center ${
-                        billFormErrors.tax_percentage ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      placeholder="3"
-                    />
-                    <span className="text-sm text-gray-600 font-medium">%</span>
-                  </div>
-                  {billFormErrors.tax_percentage && (
-                    <p className="text-xs text-red-600">{billFormErrors.tax_percentage}</p>
-                  )}
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={Math.round(currentBill.tax_percentage || 3)}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value);
+                      if (!isNaN(value) && value >= 0 && value <= 100) {
+                        setCurrentBill(prev => ({ ...prev, tax_percentage: value }));
+                      }
+                    }}
+                    onWheel={handleWheel}
+                    className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm text-center"
+                    placeholder="3"
+                  />
+                  <span className="text-sm text-gray-600 font-medium">%</span>
                 </div>
               </div>
               
@@ -3252,45 +3036,28 @@ const Billing: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     {t('billing.amountPaid')}
                   </label>
-                  <div className="flex flex-col space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={currentBill.amount_paid || ''}
-                        onChange={(e) => {
-                          const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                          if (!isNaN(value) && value >= 0) {
-                            setCurrentBill(prev => ({ ...prev, amount_paid: value }));
-                            if (billFormErrors.amount_paid) {
-                              setBillFormErrors(prev => ({ ...prev, amount_paid: undefined }));
-                            }
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value === '') {
-                            setCurrentBill(prev => ({ ...prev, amount_paid: 0 }));
-                          } else {
-                            const value = parseFloat(e.target.value);
-                            if (isNaN(value) || value < 0) {
-                              setBillFormErrors(prev => ({ ...prev, amount_paid: t('billing.amountPaidInvalid') }));
-                            } else if (value > (currentBill.total_amount || 0)) {
-                              setBillFormErrors(prev => ({ ...prev, amount_paid: t('billing.amountPaidExceedsTotal') }));
-                            }
-                          }
-                        }}
-                        onWheel={handleWheel}
-                        className={`flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm ${
-                          billFormErrors.amount_paid ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="0"
-                      />
-                      <span className="text-sm text-gray-600 font-medium">₹</span>
-                    </div>
-                    {billFormErrors.amount_paid && (
-                      <p className="text-xs text-red-600">{billFormErrors.amount_paid}</p>
-                    )}
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={currentBill.amount_paid || ''}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                        if (!isNaN(value) && value >= 0) {
+                          setCurrentBill(prev => ({ ...prev, amount_paid: value }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (e.target.value === '') {
+                          setCurrentBill(prev => ({ ...prev, amount_paid: 0 }));
+                        }
+                      }}
+                      onWheel={handleWheel}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                      placeholder="0"
+                    />
+                    <span className="text-sm text-gray-600 font-medium">₹</span>
                   </div>
                 </div>
                 
@@ -3371,7 +3138,9 @@ const Billing: React.FC = () => {
                       };
 
                       if (activeTab === 'invoice') {
-                        generateInvoicePDF(tempDocument as Invoice);
+                        generateInvoicePDF(tempDocument as Invoice).catch(err => {
+                          console.error('Error generating invoice PDF:', err);
+                        });
                       } else {
                         generateBillPDF(tempDocument as Bill);
                       }
@@ -3700,7 +3469,11 @@ const Billing: React.FC = () => {
                         </span>
                       </div>
                       <button
-                        onClick={() => generateInvoicePDF(invoice)}
+                        onClick={() => {
+                          generateInvoicePDF(invoice).catch(err => {
+                            console.error('Error generating invoice PDF:', err);
+                          });
+                        }}
                         className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
                         title="Download Invoice PDF"
                       >
@@ -3757,7 +3530,6 @@ const Billing: React.FC = () => {
         <CustomerModal
           onClose={() => setShowCustomerModal(false)}
           onSelect={setSelectedCustomer}
-          initialView={customerModalInitialView}
         />
       )}
     </div>
