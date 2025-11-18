@@ -51,6 +51,17 @@ export class DatabaseConnection {
         this.db.exec("UPDATE products SET material_type = 'Gold' WHERE material_type IS NULL");
         console.log('✅ material_type column added successfully');
       }
+
+      // Check if huid column exists
+      const hasHuid = tableInfo.some(col => col.name === 'huid');
+
+      if (!hasHuid) {
+        console.log('🔄 Adding huid column to products table...');
+        this.db.exec('ALTER TABLE products ADD COLUMN huid TEXT');
+        // Set a default value for existing products (using SKU as fallback)
+        this.db.exec("UPDATE products SET huid = sku || '_HUID' WHERE huid IS NULL OR huid = ''");
+        console.log('✅ huid column added successfully');
+      }
     } catch (error: any) {
       // Ignore if column already exists or other non-critical errors
       if (!error.message?.includes('duplicate column')) {

@@ -26,6 +26,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
     product_category: product?.product_category || undefined,
     material_type: product?.material_type || 'Gold',
     sku: product?.sku || '',
+    huid: product?.huid || '',
     barcode: product?.barcode || '',
     weight: product?.weight || 0,
     purity: product?.purity || '22K',
@@ -39,15 +40,19 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
-  const [showAddCategoryModal, setShowAddCategoryModal] = useState<boolean>(false);
+  const [showCategoryModal, setShowCategoryModal] = useState<boolean>(false);
   const [newCategoryName, setNewCategoryName] = useState<string>('');
   const [formErrors, setFormErrors] = useState<{
     name?: string;
     sku?: string;
+    huid?: string;
     weight?: string;
     stock_quantity?: string;
     min_stock_level?: string;
     barcode?: string;
+    purity?: string;
+    material_type?: string;
+    status?: string;
   }>({});
 
   const validateBarcode = (barcode: string): boolean => {
@@ -138,10 +143,14 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
     const errors: {
       name?: string;
       sku?: string;
+      huid?: string;
       weight?: string;
       stock_quantity?: string;
       min_stock_level?: string;
       barcode?: string;
+      purity?: string;
+      material_type?: string;
+      status?: string;
     } = {};
 
     // Name validation
@@ -158,6 +167,13 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
       errors.sku = t('inventory.skuMinLength');
     }
 
+    // HUID validation
+    if (!formData.huid || !formData.huid.trim()) {
+      errors.huid = t('inventory.huidRequired');
+    } else if (formData.huid.trim().length < 3) {
+      errors.huid = t('inventory.huidMinLength');
+    }
+
     // Weight validation
     if (!formData.weight || formData.weight <= 0) {
       errors.weight = t('inventory.weightRequired');
@@ -165,8 +181,18 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
       errors.weight = t('inventory.weightMaxValue');
     }
 
+    // Material Type validation
+    if (!formData.material_type || formData.material_type.trim() === '') {
+      errors.material_type = t('inventory.materialTypeRequired');
+    }
+
+    // Purity validation
+    if (!formData.purity || formData.purity.trim() === '') {
+      errors.purity = t('inventory.purityRequired');
+    }
+
     // Stock quantity validation
-    if (formData.stock_quantity === undefined || formData.stock_quantity < 0) {
+    if (formData.stock_quantity < 0) {
       errors.stock_quantity = t('inventory.stockQuantityRequired');
     } else if (formData.stock_quantity > 1000000) {
       errors.stock_quantity = t('inventory.stockQuantityMaxValue');
@@ -179,11 +205,16 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
       errors.min_stock_level = t('inventory.minStockLevelMaxValue');
     }
 
-    // Barcode validation (optional but must be valid if provided)
-    if (formData.barcode && formData.barcode.trim()) {
-      if (!validateBarcode(formData.barcode.trim())) {
-        errors.barcode = t('inventory.barcodeInvalid');
-      }
+    // Status validation
+    if (!formData.status || formData.status.trim() === '') {
+      errors.status = t('inventory.statusRequired');
+    }
+
+    // Barcode validation (now required)
+    if (!formData.barcode || !formData.barcode.trim()) {
+      errors.barcode = t('inventory.barcodeRequired');
+    } else if (!validateBarcode(formData.barcode.trim())) {
+      errors.barcode = t('inventory.barcodeInvalid');
     }
 
     setFormErrors(errors);
@@ -224,7 +255,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
     // Set the new category as selected
     setFormData({ ...formData, category: trimmedCategory });
     setNewCategoryName('');
-    setShowAddCategoryModal(false);
     success(t('inventory.categoryAddedSuccess'));
   };
 
@@ -236,10 +266,10 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
             {product ? t('inventory.editProduct') : t('inventory.addNewProduct')}
           </h2>
         </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+        <div className="p-6 space-y-5">
+          <div className="grid grid-cols-2 gap-5">
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 {t('inventory.productName')} *
               </label>
               <input
@@ -260,19 +290,19 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 <p className="mt-1 text-xs text-red-600">{formErrors.name}</p>
               )}
             </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-sm font-medium text-gray-800">
+            <div className="flex flex-col">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-gray-700">
                   {t('common.category')} *
                 </label>
                 <button
                   type="button"
-                  onClick={() => setShowAddCategoryModal(true)}
+                  onClick={() => setShowCategoryModal(!showCategoryModal)}
                   className="flex items-center space-x-1 px-2 py-1 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
-                  title={t('inventory.addNewCategory')}
+                  title={t('inventory.manageCategories')}
                 >
                   <FolderPlus className="h-3 w-3" />
-                  <span>{t('inventory.addCategory')}</span>
+                  <span>{showCategoryModal ? t('common.close') : t('inventory.manageCategories')}</span>
                 </button>
               </div>
               <select
@@ -283,7 +313,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 {['Chains', 'Rings', 'Earrings', 'Bracelets', 'Necklaces', 'Bangles', ...availableCategories].map(category => {
                   const translationKey = `inventory.${category.toLowerCase()}`;
                   const translatedName = t(translationKey);
-                  // If translation exists and is different from key, use it; otherwise use category name
                   const displayName = translatedName !== translationKey ? translatedName : category;
                   return (
                     <option key={category} value={category}>{displayName}</option>
@@ -291,8 +320,107 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 })}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+          </div>
+          
+          {/* Inline Category Manager - Full Width */}
+          {showCategoryModal && (
+            <div className="col-span-2 p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
+              {/* Add New Category */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-2">
+                  {t('inventory.addNewCategory')}
+                </label>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCategory();
+                      } else if (e.key === 'Escape') {
+                        setShowCategoryModal(false);
+                        setNewCategoryName('');
+                      }
+                    }}
+                    placeholder={t('inventory.categoryNamePlaceholder')}
+                    className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-white"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCategory}
+                    className="px-3 py-2 bg-amber-500 text-white text-sm rounded-lg hover:bg-amber-600 transition-colors flex items-center space-x-1"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>{t('common.add')}</span>
+                  </button>
+                </div>
+                <p className="text-xs text-gray-600 mt-1.5">{t('inventory.categoryNameHint')}</p>
+              </div>
+              
+              {/* Custom Categories List */}
+              {availableCategories.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">
+                    {t('inventory.customCategories')}
+                  </label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {availableCategories.map((category) => {
+                      const translationKey = `inventory.${category.toLowerCase()}`;
+                      const translatedName = t(translationKey);
+                      const displayName = translatedName !== translationKey ? translatedName : category;
+                      const isInUse = products.some(p => p.category === category);
+                      
+                      return (
+                        <div
+                          key={category}
+                          className="flex items-center justify-between px-3 py-2 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-900">{displayName}</span>
+                          <div className="flex items-center space-x-2">
+                            {isInUse && (
+                              <span className="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded font-medium">
+                                {t('inventory.inUse')}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onCategoryDeleted) {
+                                  onCategoryDeleted(category);
+                                }
+                              }}
+                              disabled={isInUse}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                isInUse
+                                  ? 'text-gray-300 cursor-not-allowed'
+                                  : 'text-red-600 hover:bg-red-50 hover:text-red-700'
+                              }`}
+                              title={isInUse ? t('inventory.cannotDeleteInUse') : t('inventory.deleteCategory')}
+                            >
+                              <Trash className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              
+              {availableCategories.length === 0 && (
+                <div className="text-center py-4 text-gray-500">
+                  <p className="text-xs">No custom categories yet. Add one above!</p>
+                </div>
+              )}
+            </div>
+          )}
+          
+          <div className="grid grid-cols-2 gap-5">
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 {t('inventory.genderAgeCategory')}
               </label>
               <select
@@ -306,8 +434,8 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 {t('inventory.sku')} *
               </label>
               <input
@@ -328,9 +456,32 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 <p className="mt-1 text-xs text-red-600">{formErrors.sku}</p>
               )}
             </div>
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-sm font-medium text-gray-700">{t('inventory.barcode')}</label>
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                {t('inventory.huid')} *
+              </label>
+              <input
+                type="text"
+                value={formData.huid || ''}
+                onChange={(e) => {
+                  setFormData({ ...formData, huid: e.target.value });
+                  if (formErrors.huid) {
+                    setFormErrors({ ...formErrors, huid: undefined });
+                  }
+                }}
+                placeholder={t('inventory.huidPlaceholder')}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                  formErrors.huid ? 'border-red-500' : 'border-gray-300'
+                }`}
+                required
+              />
+              {formErrors.huid && (
+                <p className="mt-1 text-xs text-red-600">{formErrors.huid}</p>
+              )}
+            </div>
+            <div className=" flex flex-col">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-gray-700">{t('inventory.barcode')} *</label>
                 <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">{t('inventory.barcodeFocusShortcut')}</span>
               </div>
               <div className="flex space-x-2">
@@ -339,7 +490,12 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                     ref={barcodeInputRef}
                     type="text"
                     value={formData.barcode}
-                    onChange={(e) => handleBarcodeInput(e.target.value)}
+                    onChange={(e) => {
+                      handleBarcodeInput(e.target.value);
+                      if (formErrors.barcode) {
+                        setFormErrors({ ...formErrors, barcode: undefined });
+                      }
+                    }}
                     onKeyDown={handleBarcodeKeyDown}
                     placeholder={t('inventory.barcodePlaceholder')}
                     className={`w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-monowarden-blockquotesono text-sm ${
@@ -347,6 +503,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                     }`}
                     disabled={isScanning}
                     title={t('inventory.barcodeInputTitle')}
+                    required
                   />
                   {isScanning && (
                     <div className="absolute right-3 top-2.5">
@@ -391,8 +548,8 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 </div>
               )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('inventory.weightGrams')} *</label>
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.weightGrams')} *</label>
               <input
                 type="number"
                 step="0.01"
@@ -416,12 +573,20 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 <p className="mt-1 text-xs text-red-600">{formErrors.weight}</p>
               )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('inventory.materialType')} *</label>
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.materialType')} *</label>
               <select
                 value={formData.material_type || 'Gold'}
-                onChange={(e) => setFormData({ ...formData, material_type: e.target.value as 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Other' })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                onChange={(e) => {
+                  setFormData({ ...formData, material_type: e.target.value as 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Other' });
+                  if (formErrors.material_type) {
+                    setFormErrors({ ...formErrors, material_type: undefined });
+                  }
+                }}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                  formErrors.material_type ? 'border-red-500' : 'border-gray-300'
+                }`}
+                required
               >
                 <option value="Gold">{t('inventory.gold')}</option>
                 <option value="Silver">{t('inventory.silver')}</option>
@@ -429,9 +594,12 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 <option value="Diamond">{t('inventory.diamond')}</option>
                 <option value="Other">{t('inventory.other')}</option>
               </select>
+              {formErrors.material_type && (
+                <p className="mt-1 text-xs text-red-600">{formErrors.material_type}</p>
+              )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('inventory.purity')} *</label>
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.purity')} *</label>
               <select
                 value={formData.purity}
                 onChange={(e) => {
@@ -440,24 +608,56 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                     ...formData, 
                     purity: newPurity
                   });
+                  if (formErrors.purity) {
+                    setFormErrors({ ...formErrors, purity: undefined });
+                  }
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                  formErrors.purity ? 'border-red-500' : 'border-gray-300'
+                }`}
+                required
               >
                 <option value="24K">24K</option>
                 <option value="22K">22K</option>
                 <option value="18K">18K</option>
                 <option value="14K">14K</option>
               </select>
+              {formErrors.purity && (
+                <p className="mt-1 text-xs text-red-600">{formErrors.purity}</p>
+              )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('inventory.stockQuantity')} *</label>
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.status')} *</label>
+              <select
+                required
+                value={formData.status}
+                onChange={(e) => {
+                  setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' });
+                  if (formErrors.status) {
+                    setFormErrors({ ...formErrors, status: undefined });
+                  }
+                }}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                  formErrors.status ? 'border-red-500' : 'border-gray-300'
+                }`}
+              >
+                <option value="active">{t('common.active')}</option>
+                <option value="inactive">{t('common.inactive')}</option>
+              </select>
+              {formErrors.status && (
+                <p className="mt-1 text-xs text-red-600">{formErrors.status}</p>
+              )}
+            </div>
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.stockQuantity')} *</label>
               <input
                 type="number"
                 min="0"
                 max="1000000"
-                value={formData.stock_quantity || ''}
+                value={formData.stock_quantity !== undefined && formData.stock_quantity !== null ? formData.stock_quantity : ''}
                 onChange={(e) => {
-                  const value = parseInt(e.target.value) || 0;
+                  const inputValue = e.target.value;
+                  const value = inputValue === '' ? 0 : parseInt(inputValue) || 0;
                   setFormData({ ...formData, stock_quantity: value });
                   if (formErrors.stock_quantity) {
                     setFormErrors({ ...formErrors, stock_quantity: undefined });
@@ -473,8 +673,8 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 <p className="mt-1 text-xs text-red-600">{formErrors.stock_quantity}</p>
               )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('inventory.minStockLevel')} *</label>
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.minStockLevel')} *</label>
               <input
                 type="number"
                 min="0"
@@ -496,18 +696,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
               {formErrors.min_stock_level && (
                 <p className="mt-1 text-xs text-red-600">{formErrors.min_stock_level}</p>
               )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('inventory.status')} *</label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-              >
-                <option value="active">{t('common.active')}</option>
-                <option value="inactive">{t('common.inactive')}</option>
-              </select>
-            </div>
+            </div>       
           </div>
           <div className="flex space-x-4 pt-4">
             <button
@@ -527,127 +716,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
           </div>
         </div>
       </div>
-
-      {/* Add Category Modal */}
-      {showAddCategoryModal && createPortal(
-        <div className="fixed top-0 left-0 right-0 bottom-0 w-screen h-screen bg-black bg-opacity-50 flex items-center justify-center p-4 z-[9999] m-0" style={{ margin: 0 }}>
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-gray-900 flex items-center space-x-2">
-                  <FolderPlus className="h-5 w-5 text-amber-500" />
-                  <span>{t('inventory.manageCategories')}</span>
-                </h3>
-                <button
-                  onClick={() => {
-                    setShowAddCategoryModal(false);
-                    setNewCategoryName('');
-                  }}
-                  className="text-gray-400 hover:text-gray-600 transition p-1 rounded-full hover:bg-gray-100"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-            <div className="p-6 space-y-6">
-              {/* Add New Category Section */}
-              <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">{t('inventory.addNewCategory')}</h4>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t('inventory.categoryName')} *
-                  </label>
-                  <input
-                    type="text"
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddCategory();
-                      }
-                    }}
-                    placeholder={t('inventory.categoryNamePlaceholder')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                    autoFocus
-                  />
-                  <p className="text-xs text-gray-500 mt-1">{t('inventory.categoryNameHint')}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAddCategory}
-                  className="mt-3 w-full bg-amber-500 text-white py-2 px-4 rounded-lg hover:bg-amber-600 transition-colors"
-                >
-                  {t('inventory.addCategory')}
-                </button>
-              </div>
-
-              {/* Custom Categories List */}
-              {availableCategories.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">{t('inventory.customCategories')}</h4>
-                  <div className="space-y-2">
-                    {availableCategories.map((category) => {
-                      const translationKey = `inventory.${category.toLowerCase()}`;
-                      const translatedName = t(translationKey);
-                      const displayName = translatedName !== translationKey ? translatedName : category;
-                      const isInUse = products.some(p => p.category === category);
-                      
-                      return (
-                        <div
-                          key={category}
-                          className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200"
-                        >
-                          <span className="text-sm font-medium text-gray-900">{displayName}</span>
-                          <div className="flex items-center space-x-2">
-                            {isInUse && (
-                              <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                                {t('inventory.inUse')}
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (onCategoryDeleted) {
-                                  onCategoryDeleted(category);
-                                }
-                              }}
-                              disabled={isInUse}
-                              className={`p-2 rounded-lg transition-colors ${
-                                isInUse
-                                  ? 'text-gray-300 cursor-not-allowed'
-                                  : 'text-red-600 hover:bg-red-50 hover:text-red-700'
-                              }`}
-                              title={isInUse ? t('inventory.cannotDeleteInUse') : t('inventory.deleteCategory')}
-                            >
-                              <Trash className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Close Button */}
-              <div className="pt-2 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddCategoryModal(false);
-                    setNewCategoryName('');
-                  }}
-                  className="w-full bg-gray-500 text-white py-2 px-4 rounded-lg hover:bg-gray-600 transition-colors"
-                >
-                  {t('common.close')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>,
     document.body
   );
@@ -720,7 +788,7 @@ const Inventory: React.FC = () => {
       error(t('inventory.cannotDeleteInUse'));
       return;
     }
-    
+
     // Open confirmation modal instead of browser confirm
     setCategoryToDelete(category);
   };
@@ -729,14 +797,14 @@ const Inventory: React.FC = () => {
     if (!categoryToDelete) return;
     
     const category = categoryToDelete;
-    const updated = customCategories.filter(cat => cat !== category);
-    saveCustomCategories(updated);
-    success(t('inventory.categoryDeletedSuccess'));
-    
-    // If the deleted category was selected, reset to default
-    if (selectedCategory === category) {
-      setSelectedCategory('all');
-    }
+      const updated = customCategories.filter(cat => cat !== category);
+      saveCustomCategories(updated);
+      success(t('inventory.categoryDeletedSuccess'));
+      
+      // If the deleted category was selected, reset to default
+      if (selectedCategory === category) {
+        setSelectedCategory('all');
+      }
     
     setCategoryToDelete(null);
   };
@@ -769,6 +837,7 @@ const Inventory: React.FC = () => {
       filtered = filtered.filter(product =>
         product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (product.huid && product.huid.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (product.barcode && product.barcode.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
@@ -831,20 +900,20 @@ const Inventory: React.FC = () => {
   const confirmDeleteProduct = async () => {
     if (!productToDelete) return;
 
-    try {
-      const db = Database.getInstance();
+      try {
+        const db = Database.getInstance();
       await db.delete('products', productToDelete.id);
       setProducts(products.filter(p => p.id !== productToDelete.id));
-      success(t('inventory.productDeleteSuccess'));
+        success(t('inventory.productDeleteSuccess'));
       setProductToDelete(null);
-    } catch (err: any) {
-      console.error('Error deleting product:', err);
-      if (err.response?.status === 400 && err.response?.data?.references) {
-        const references = err.response.data.references;
-        const message = t('inventory.deleteReferencesMessage', {
-          bills: references.bills,
-          invoices: references.invoices
-        });
+      } catch (err: any) {
+        console.error('Error deleting product:', err);
+        if (err.response?.status === 400 && err.response?.data?.references) {
+          const references = err.response.data.references;
+          const message = t('inventory.deleteReferencesMessage', {
+            bills: references.bills,
+            invoices: references.invoices
+          });
         // Open cascade confirmation modal
         setCascadeDeleteInfo({ product: productToDelete, message });
         setProductToDelete(null);
@@ -859,14 +928,14 @@ const Inventory: React.FC = () => {
     if (!cascadeDeleteInfo) return;
     const { product } = cascadeDeleteInfo;
 
-    try {
-      const dbInstance = Database.getInstance();
+            try {
+              const dbInstance = Database.getInstance();
       await dbInstance.deleteWithCascade('products', product.id);
       setProducts(products.filter(p => p.id !== product.id));
-      success(t('inventory.productDeleteCascadeSuccess'));
-    } catch (cascadeErr: unknown) {
-      console.error('Error in cascade delete:', cascadeErr);
-      error(t('inventory.productDeleteCascadeError'));
+              success(t('inventory.productDeleteCascadeSuccess'));
+            } catch (cascadeErr: unknown) {
+              console.error('Error in cascade delete:', cascadeErr);
+              error(t('inventory.productDeleteCascadeError'));
     } finally {
       setCascadeDeleteInfo(null);
     }
@@ -998,6 +1067,12 @@ const Inventory: React.FC = () => {
                         <Hash className="h-4 w-4 text-[#3B82F6]" />
                         <p className="text-sm font-medium text-gray-900">{product.sku}</p>
                       </div>
+                      {product.huid && (
+                        <div className="flex items-center space-x-2">
+                          <Hash className="h-4 w-4 text-[#8B5CF6]" />
+                          <p className="text-xs text-gray-600">HUID: {product.huid}</p>
+                        </div>
+                      )}
                       {product.barcode && (
                         <div className="flex items-center space-x-2">
                           <Barcode className="h-4 w-4 text-[#10B981]" />
@@ -1117,6 +1192,11 @@ const Inventory: React.FC = () => {
                   <Hash className="h-4 w-4 text-gray-500 flex-shrink-0" />
                   <span className="text-gray-700">SKU:</span>
                   <span className="text-gray-900">{viewingProduct.sku}</span>
+                </span>
+                <span className="font-mono text-sm font-semibold px-3 py-1.5 rounded-md flex items-center gap-2 border border-gray-200 bg-gray-50">
+                  <Hash className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                  <span className="text-gray-700">HUID:</span>
+                  <span className="text-gray-900">{viewingProduct.huid || '-'}</span>
                 </span>
                 {viewingProduct.barcode && (
                   <span className="font-mono text-sm font-semibold px-3 py-1.5 rounded-md flex items-center gap-2 border border-gray-200 bg-gray-50">
@@ -1285,7 +1365,7 @@ const Inventory: React.FC = () => {
 
       {/* Delete product confirmation modal */}
       {productToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
             <div className="flex items-center space-x-2 mb-4">
               <AlertTriangle className="h-5 w-5 text-red-500" />
@@ -1318,7 +1398,7 @@ const Inventory: React.FC = () => {
 
       {/* Cascade delete confirmation modal */}
       {cascadeDeleteInfo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
             <div className="flex items-center space-x-2 mb-4">
               <AlertTriangle className="h-5 w-5 text-red-500" />
@@ -1351,29 +1431,33 @@ const Inventory: React.FC = () => {
 
       {/* Delete category confirmation modal */}
       {categoryToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center space-x-2 mb-4">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              <h3 className="text-lg font-semibold text-gray-900">
-                {t('inventory.confirmDeleteCategoryTitle')}
-              </h3>
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {t('inventory.confirmDeleteCategoryTitle')}
+                </h3>
+              </div>
             </div>
-            <p className="text-sm text-gray-700 mb-4">
+            <p className="text-sm text-gray-700 mb-6 ml-12">
               {t('inventory.confirmDeleteCategory', { category: categoryToDelete })}
             </p>
             <div className="flex justify-end space-x-3">
               <button
                 type="button"
                 onClick={() => setCategoryToDelete(null)}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 {t('common.cancel')}
               </button>
               <button
                 type="button"
                 onClick={confirmDeleteCategory}
-                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
               >
                 {t('common.delete')}
               </button>

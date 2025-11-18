@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS products (
     product_category TEXT CHECK (product_category IN ('Men', 'Women', 'Kids')),
     material_type TEXT CHECK (material_type IN ('Gold', 'Silver', 'Platinum', 'Diamond', 'Other')),
     sku TEXT UNIQUE NOT NULL,
+    huid TEXT NOT NULL,
     barcode TEXT UNIQUE,
     weight REAL NOT NULL,
     purity TEXT NOT NULL,

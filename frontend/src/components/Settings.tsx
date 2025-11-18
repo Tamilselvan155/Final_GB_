@@ -218,6 +218,7 @@ const Settings: React.FC = () => {
           'Product Name': product.name,
           'Category': product.category,
           'SKU': product.sku,
+          'HUID': product.huid || '',
           'Barcode': product.barcode || '',
           'Weight (g)': product.weight,
           'Purity': product.purity,
@@ -651,9 +652,11 @@ const Settings: React.FC = () => {
           'Name': product.name,
           'Category': product.category,
           'SKU': product.sku,
+          'HUID': product.huid || '',
           'Barcode': product.barcode || '',
           'Weight (g)': product.weight,
           'Purity': product.purity,
+          'Material Type': product.material_type || '',
           'Making Charge (₹)': product.making_charge,
           'Current Rate (₹/g)': product.current_rate,
           'Stock Quantity': product.stock_quantity,
@@ -1531,6 +1534,7 @@ const Settings: React.FC = () => {
           name: product['Product Name'] || product.Name || product.name || '',
           category: product.Category || product.category || 'Chains',
           sku: product.SKU || product.sku || generateId(),
+          huid: product.HUID || product.huid || (product.SKU || product.sku ? `${product.SKU || product.sku}_HUID` : generateId()),
           barcode: product.Barcode || product.barcode || '',
           weight: parseFloat(product['Weight (g)'] || product.weight || 0) || 0,
           purity: product.Purity || product.purity || '22K',
@@ -1559,6 +1563,11 @@ const Settings: React.FC = () => {
           if (!mappedProduct.sku) {
             mappedProduct.sku = generateId();
           }
+        }
+        
+        // Ensure HUID is present - generate if missing
+        if (!mappedProduct.huid || mappedProduct.huid.trim() === '') {
+          mappedProduct.huid = mappedProduct.sku ? `${mappedProduct.sku}_HUID` : generateId();
         }
         
         return mappedProduct;

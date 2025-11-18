@@ -74,6 +74,9 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <ToastContext.Provider value={{ success, error, loading, dismiss }}>
       {children}
       <Toaster
+        containerStyle={{
+          zIndex: 99999,
+        }}
         toastOptions={{
           duration: 6000,
           style: {

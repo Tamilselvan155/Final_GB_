@@ -5,6 +5,7 @@ export interface Product {
   product_category?: 'Men' | 'Women' | 'Kids';
   material_type?: 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Other';
   sku: string;
+  huid: string; // Hallmark Unique Identification
   barcode?: string;
   weight: number; // in grams
   purity: string; // 22K, 18K, etc.

@@ -1206,7 +1206,8 @@ const Billing: React.FC = () => {
     const lowerSearchTerm = searchTerm.toLowerCase();
     return products.filter(product =>
       product.name.toLowerCase().includes(lowerSearchTerm) ||
-      product.sku.toLowerCase().includes(lowerSearchTerm)
+      product.sku.toLowerCase().includes(lowerSearchTerm) ||
+      (product.huid && product.huid.toLowerCase().includes(lowerSearchTerm))
     );
   }, [products, searchTerm]);
 
