@@ -57,7 +57,7 @@ const Dashboard: React.FC = () => {
   const [salesData, setSalesData] = useState<Array<{ month: string; sales: number }>>([]);
   const [categoryData, setCategoryData] = useState<Array<{ name: string; value: number; color: string }>>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [filterType, setFilterType] = useState<'today' | 'week' | 'month' | 'quarter' | 'year' | 'custom'>('month');
+  const [filterType, setFilterType] = useState<'today' | 'week' | 'month' | 'quarter' | 'year' | 'custom'>('today');
   const [customDateRange, setCustomDateRange] = useState({
     startDate: '',
     endDate: '',
@@ -318,6 +318,14 @@ const Dashboard: React.FC = () => {
     let totalTransactions = 0;
     const now = new Date();
 
+    // Helper function to validate and parse date
+    const parseSaleDate = (createdAt: any): Date | null => {
+      if (!createdAt) return null;
+      const date = new Date(createdAt);
+      if (isNaN(date.getTime())) return null;
+      return date;
+    };
+
     if (filterType === 'today') {
       const todayStart = new Date(now);
       todayStart.setHours(0, 0, 0, 0);
@@ -330,8 +338,8 @@ const Dashboard: React.FC = () => {
       }
 
       allSales.forEach((sale) => {
-        const saleDate = new Date(sale.created_at);
-        if (saleDate >= todayStart && saleDate <= todayEnd) {
+        const saleDate = parseSaleDate(sale.created_at);
+        if (saleDate && saleDate >= todayStart && saleDate <= todayEnd) {
           const hour = saleDate.getHours();
           const hourKey = `${hour}:00`;
           const amount = parseFloat(sale.total_amount) || 0;
@@ -362,8 +370,8 @@ const Dashboard: React.FC = () => {
         weeksData[weekKey] = 0;
 
         allSales.forEach((sale) => {
-          const saleDate = new Date(sale.created_at);
-          if (saleDate >= weekStart && saleDate <= weekEnd) {
+          const saleDate = parseSaleDate(sale.created_at);
+          if (saleDate && saleDate >= weekStart && saleDate <= weekEnd) {
             const amount = parseFloat(sale.total_amount) || 0;
             weeksData[weekKey] += amount;
             totalSales += amount;
@@ -382,6 +390,7 @@ const Dashboard: React.FC = () => {
 
       for (let i = 5; i >= 0; i--) {
         const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        monthStart.setHours(0, 0, 0, 0);
         const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
         monthEnd.setHours(23, 59, 59, 999);
 
@@ -389,8 +398,8 @@ const Dashboard: React.FC = () => {
         monthsData[monthKey] = 0;
 
         allSales.forEach((sale) => {
-          const saleDate = new Date(sale.created_at);
-          if (saleDate >= monthStart && saleDate <= monthEnd) {
+          const saleDate = parseSaleDate(sale.created_at);
+          if (saleDate && saleDate >= monthStart && saleDate <= monthEnd) {
             const amount = parseFloat(sale.total_amount) || 0;
             monthsData[monthKey] += amount;
             totalSales += amount;
@@ -417,8 +426,8 @@ const Dashboard: React.FC = () => {
         quartersData[quarterKey] = 0;
 
         allSales.forEach((sale) => {
-          const saleDate = new Date(sale.created_at);
-          if (saleDate >= quarterStart && saleDate <= quarterEnd) {
+          const saleDate = parseSaleDate(sale.created_at);
+          if (saleDate && saleDate >= quarterStart && saleDate <= quarterEnd) {
             const amount = parseFloat(sale.total_amount) || 0;
             quartersData[quarterKey] += amount;
             totalSales += amount;
@@ -438,6 +447,7 @@ const Dashboard: React.FC = () => {
       for (let i = 2; i >= 0; i--) {
         const year = currentYear - i;
         const yearStart = new Date(year, 0, 1);
+        yearStart.setHours(0, 0, 0, 0);
         const yearEnd = new Date(year, 11, 31);
         yearEnd.setHours(23, 59, 59, 999);
 
@@ -445,8 +455,8 @@ const Dashboard: React.FC = () => {
         yearsData[yearKey] = 0;
 
         allSales.forEach((sale) => {
-          const saleDate = new Date(sale.created_at);
-          if (saleDate >= yearStart && saleDate <= yearEnd) {
+          const saleDate = parseSaleDate(sale.created_at);
+          if (saleDate && saleDate >= yearStart && saleDate <= yearEnd) {
             const amount = parseFloat(sale.total_amount) || 0;
             yearsData[yearKey] += amount;
             totalSales += amount;
@@ -462,6 +472,7 @@ const Dashboard: React.FC = () => {
     } else if (filterType === 'custom') {
       if (customDateRange.startDate && customDateRange.endDate) {
         const startDate = new Date(customDateRange.startDate);
+        startDate.setHours(0, 0, 0, 0);
         const endDate = new Date(customDateRange.endDate);
         endDate.setHours(23, 59, 59, 999);
 
@@ -475,8 +486,8 @@ const Dashboard: React.FC = () => {
         }
 
         allSales.forEach((sale) => {
-          const saleDate = new Date(sale.created_at);
-          if (saleDate >= startDate && saleDate <= endDate) {
+          const saleDate = parseSaleDate(sale.created_at);
+          if (saleDate && saleDate >= startDate && saleDate <= endDate) {
             const dayKey = saleDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             const amount = parseFloat(sale.total_amount) || 0;
             daysData[dayKey] += amount;
@@ -543,530 +554,600 @@ const Dashboard: React.FC = () => {
         return;
       }
 
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 20;
-    let yPosition = 25;
-
-    // Add gold/brown border strips (exact template colors)
-    doc.setFillColor(218, 165, 32); // Gold color for borders
-    doc.rect(0, 0, 10, pageHeight, 'F'); // Left border
-    doc.rect(pageWidth - 10, 0, 10, pageHeight, 'F'); // Right border
-    doc.rect(0, 0, pageWidth, 10, 'F'); // Top border
-    doc.rect(0, pageHeight - 10, pageWidth, 10, 'F'); // Bottom border
-
-    // Load and add invoice background image as centered watermark with opacity
-    // This should be drawn BEFORE content so it appears behind everything
-    try {
-      // Try multiple possible paths for the sample invoice image (Vite serves from public folder)
-      const possiblePaths = [
-        '/assets/sample-invoice.png',  // Sample invoice template (primary)
-        '/assets/vannaMayil-invoice.jpeg',  // Fallback to original
-        '/sample-invoice.png',  // Root public folder
-        '/vannaMayil-invoice.jpeg',  // Root public folder fallback
-        './assets/sample-invoice.png',
-        'assets/sample-invoice.png'
-      ];
-      
-      let imageDataUrl: string | null = null;
-      for (const imagePath of possiblePaths) {
+      // If invoice doesn't have items, fetch the full invoice with items
+      let invoiceWithItems = invoice;
+      if (!invoice.items || !Array.isArray(invoice.items) || invoice.items.length === 0) {
         try {
-          const response = await fetch(imagePath);
-          if (response.ok) {
-            const blob = await response.blob();
-            imageDataUrl = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(blob);
-            });
-            break;
+          const invoiceId = String(invoice.id);
+          const fullInvoice = await Database.getInstance().getInvoice(invoiceId);
+          if (fullInvoice) {
+            invoiceWithItems = fullInvoice;
           }
-        } catch (e) {
-          // Try next path
-          continue;
+        } catch (fetchError) {
+          console.error('Error fetching invoice with items:', fetchError);
         }
       }
-      
-      if (imageDataUrl) {
-        console.log('Background image loaded successfully, adding to PDF...');
-        // Store imageDataUrl in a const to avoid null check issues
-        const currentImageDataUrl = imageDataUrl;
-        // Add background image as full-page background with reduced opacity
-        // The background image contains all the Tamil text and logos already rendered
-        await new Promise<void>((resolve) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => {
-            try {
-              const canvas = document.createElement('canvas');
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                // Fill with white background first
-                ctx.fillStyle = 'white';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
-                // Draw the sample invoice template as the base - it should be the actual template
-                // Use full opacity for the template structure, then we'll add dynamic content on top
-                ctx.globalAlpha = 1.0; // Full opacity - this is the actual invoice template
-                ctx.drawImage(img, 0, 0);
-                ctx.globalAlpha = 1.0; // Reset
-                
-                // Use PNG format for sample invoice, JPEG for fallback
-                const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
-                const templateImageDataUrl = canvas.toDataURL(imageFormat === 'PNG' ? 'image/png' : 'image/jpeg', 1.0);
-                // Add the template as the base layer - FULL PAGE (0,0) since template includes borders
-                // The template image already contains all borders, so we place it at the origin
-                doc.addImage(templateImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
-                console.log('Background image added to PDF successfully');
-              }
-            } catch (canvasError) {
-              console.error('Canvas operation failed, adding image without opacity:', canvasError);
-              // Fallback: add image without opacity - full page since template includes borders
-              if (currentImageDataUrl) {
-                const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
-                // Template includes borders, so place at origin (0,0) at full page size
-                doc.addImage(currentImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
-              }
+
+      const invoiceToUse = invoiceWithItems;
+
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 20;
+
+      // Load and add invoice background image template
+      let imageDataUrl: string | null = null;
+      try {
+        const possiblePaths = [
+          '/assets/sample-invoice.png',
+          '/assets/vannaMayil-invoice.jpeg',
+          '/sample-invoice.png',
+          '/vannaMayil-invoice.jpeg',
+          './assets/sample-invoice.png',
+          'assets/sample-invoice.png'
+        ];
+        
+        for (const imagePath of possiblePaths) {
+          try {
+            const response = await fetch(imagePath);
+            if (response.ok) {
+              const blob = await response.blob();
+              imageDataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+              });
+              break;
             }
-            resolve();
-          };
-          img.onerror = (error) => {
-            console.error('Failed to load image for watermark:', error);
-            console.error('Image src was:', currentImageDataUrl.substring(0, 100));
-            resolve();
-          };
-          img.src = currentImageDataUrl;
+          } catch (e) {
+            continue;
+          }
+        }
+        
+        if (imageDataUrl) {
+          const currentImageDataUrl = imageDataUrl;
+          await new Promise<void>((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              try {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.fillStyle = 'white';
+                  ctx.fillRect(0, 0, canvas.width, canvas.height);
+                  ctx.globalAlpha = 1.0;
+                  ctx.drawImage(img, 0, 0);
+                  ctx.globalAlpha = 1.0;
+                  
+                  const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
+                  const templateImageDataUrl = canvas.toDataURL(imageFormat === 'PNG' ? 'image/png' : 'image/jpeg', 1.0);
+                  doc.addImage(templateImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
+                }
+              } catch (canvasError) {
+                if (currentImageDataUrl) {
+                  const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
+                  doc.addImage(currentImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
+                }
+              }
+              resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = currentImageDataUrl;
+          });
+        }
+      } catch (bgError) {
+        console.warn('Could not load invoice background image:', bgError);
+      }
+      
+      if (!imageDataUrl) {
+        console.warn('WARNING: Background image not loaded! Invoice will not match template.');
+      }
+
+      // Customer information - overlay on template
+      const customerInfoY = 95;
+      const customerInfoX = margin + 5;
+      
+      // Cover grey box area with white
+      doc.setFillColor(255, 255, 255);
+      doc.rect(customerInfoX - 5, customerInfoY - 8, 120, 45 + 5, 'F');
+      
+      // Add customer information
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text('Customer Name & address', customerInfoX, customerInfoY);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const customerName = invoiceToUse.customer_name || '';
+      if (customerName) {
+        doc.text(customerName, customerInfoX, customerInfoY + 13);
+      }
+      
+      if (invoiceToUse.customer_address) {
+        const addressLines = doc.splitTextToSize(invoiceToUse.customer_address, 100);
+        let addressY = customerInfoY + 24;
+        addressLines.forEach((line: string, idx: number) => {
+          if (idx < 2) {
+            doc.text(line, customerInfoX, addressY);
+            addressY += 10;
+          }
         });
       }
-    } catch (bgError) {
-      console.warn('Could not load invoice background image:', bgError);
-      // Background image is optional, continue without it
-    }
-
-    // Note: All header text, logos, and Tamil text are already in the background image
-    // We only need to add dynamic content (customer info, items, etc.)
-    // Skip drawing header elements as they're in the background image
-    yPosition = 80; // Start after header section
-
-    // Dotted line before Invoice Details
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
-    }
-    yPosition += 8;
-
-    // Invoice Details section header (light gray box)
-    doc.setFillColor(240, 240, 240);
-    doc.rect(margin, yPosition, pageWidth - 2 * margin, 15, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
-    yPosition += 20;
-
-    // Customer information box (left side)
-    doc.setFillColor(240, 240, 240);
-    doc.rect(margin, yPosition, 120, 45, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Customer Name & address', margin + 5, yPosition + 8);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text(invoice.customer_name || '', margin + 5, yPosition + 18);
-    if (invoice.customer_address) {
-      const addressLines = doc.splitTextToSize(invoice.customer_address, 100);
-      doc.text(addressLines[0] || '', margin + 5, yPosition + 26);
-      if (addressLines[1]) {
-        doc.text(addressLines[1], margin + 5, yPosition + 34);
-      }
-    }
-    if (invoice.customer_phone) {
-      doc.text(`Phone: ${invoice.customer_phone}`, margin + 5, yPosition + (invoice.customer_address ? 42 : 28));
-    }
-
-    // Right side boxes (DATE, Time, NO)
-    const rightBoxX = pageWidth - margin - 80;
-    const boxWidth = 80;
-    const boxHeight = 12;
-    
-    // DATE box
-    doc.setFillColor(240, 240, 240);
-    doc.rect(rightBoxX, yPosition, boxWidth, boxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('DATE', rightBoxX + 5, yPosition + 8);
-    doc.setFont('helvetica', 'normal');
-    const invoiceDate = invoice.created_at ? new Date(invoice.created_at) : new Date();
-    doc.text(invoiceDate.toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
-    
-    // Time box
-    doc.setFillColor(240, 240, 240);
-    doc.rect(rightBoxX, yPosition + 15, boxWidth, boxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFont('helvetica', 'bold');
-    doc.text('Time', rightBoxX + 5, yPosition + 23);
-    doc.setFont('helvetica', 'normal');
-    doc.text(invoiceDate.toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
-    
-    // NO box
-    doc.setFillColor(240, 240, 240);
-    doc.rect(rightBoxX, yPosition + 30, boxWidth, boxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFont('helvetica', 'bold');
-    doc.text('NO', rightBoxX + 5, yPosition + 38);
-    doc.setFont('helvetica', 'normal');
-    doc.text(invoice.invoice_number || '', rightBoxX + 5, yPosition + 48);
-
-    yPosition += 60;
-
-    // First dotted line
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
-    }
-    yPosition += 15;
-
-    // Items table header
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    const colPositions = [margin + 5, margin + 25, margin + 100, margin + 135, margin + 165];
-    
-    doc.text('Qty', colPositions[0], yPosition);
-    doc.text('Description', colPositions[1], yPosition);
-    doc.text('Rate', colPositions[2], yPosition);
-    doc.text('Gross Wt.', colPositions[3], yPosition);
-    yPosition += 10;
-
-    // Items table data
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    if (invoice.items && Array.isArray(invoice.items)) {
-      invoice.items.forEach((item: any) => {
-        doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
-        // Truncate long product names to fit
-        const productName = (item.product_name || 'N/A').substring(0, 30);
-        doc.text(productName, colPositions[1], yPosition);
-        doc.text(`₹${(item.rate || 0).toLocaleString('en-IN')}`, colPositions[2], yPosition);
-        doc.text((item.weight || 0).toString(), colPositions[3], yPosition);
-        yPosition += 8;
-        
-        // Check if we need a new page
-        if (yPosition > pageHeight - 80) {
-          doc.addPage();
-          yPosition = 25;
+      
+      if (invoiceToUse.customer_phone) {
+        let phoneY = customerInfoY + 24;
+        if (invoiceToUse.customer_address) {
+          const addressLines = doc.splitTextToSize(invoiceToUse.customer_address, 100);
+          phoneY = customerInfoY + 24 + (Math.min(addressLines.length, 2) * 10);
         }
-      });
-    }
+        doc.text(`Phone: ${invoiceToUse.customer_phone}`, customerInfoX, phoneY);
+      }
 
-    yPosition += 10;
-
-    // Second dotted line
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
-    }
-    yPosition += 15;
-
-    // Summary section
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    const totalQty = invoice.items?.reduce((sum: number, item: any) => sum + (parseInt(item.quantity) || 0), 0) || 0;
-    const totalWeight = invoice.items?.reduce((sum: number, item: any) => sum + (parseFloat(item.weight) || 0), 0) || 0;
-    
-    doc.text(`Total Qty: ${totalQty}`, margin + 5, yPosition);
-    doc.text(`Total Gross Weight: ${totalWeight.toFixed(3)}`, margin + 5, yPosition + 8);
-    doc.text(`Total Taxable Amount: ₹${(invoice.subtotal || 0).toLocaleString('en-IN')}`, margin + 5, yPosition + 16);
-    
-    if (invoice.discount_amount && invoice.discount_amount > 0) {
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Less Special Discount: ₹${Math.round(invoice.discount_amount).toLocaleString('en-IN')}`, margin + 5, yPosition + 24);
-      yPosition += 8;
+      // Invoice date, time, and number
+      const rightInfoX = pageWidth - margin - 80;
+      const invoiceDate = invoiceToUse.created_at ? new Date(invoiceToUse.created_at) : new Date();
+      const dateBoxWidth = 80;
+      
+      // Cover grey boxes area with white
+      doc.setFillColor(255, 255, 255);
+      doc.rect(rightInfoX - 5, customerInfoY - 8, dateBoxWidth + 10, 40, 'F');
+      
+      // DATE and Time on first line
+      doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
-    }
-    
-    doc.text(`Net Amount: ₹${(invoice.total_amount || 0).toLocaleString('en-IN')}`, margin + 5, yPosition + 32);
+      doc.setTextColor(0, 0, 0);
+      
+      doc.text('DATE', rightInfoX, customerInfoY);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const dateStr = invoiceDate.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const dateLabelWidth = doc.getTextWidth('DATE');
+      doc.text(dateStr, rightInfoX + dateLabelWidth + 5, customerInfoY);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      const timeLabelX = rightInfoX + 50;
+      doc.text('Time', timeLabelX, customerInfoY);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const timeStr = invoiceDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+      const timeLabelWidth = doc.getTextWidth('Time');
+      doc.text(timeStr, timeLabelX + timeLabelWidth + 5, customerInfoY);
+      
+      // NO and invoice number on second line
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('NO', rightInfoX, customerInfoY + 18);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const invNumber = invoiceToUse.invoice_number || '';
+      const noLabelWidth = doc.getTextWidth('NO');
+      doc.text(invNumber, rightInfoX + noLabelWidth + 5, customerInfoY + 18);
 
-    // Note: Central watermark logo is already in the background image
-    // No need to draw it separately
+      // Products list
+      const invoiceDetailsEndY = customerInfoY + 60;
+      const dottedLineY = invoiceDetailsEndY + 10;
+      const productsStartY = dottedLineY + 8;
+      const maxProductsY = 240;
+      
+      let itemY = productsStartY;
+      
+      let itemsToProcess: any[] = [];
+      if (invoiceToUse.items && Array.isArray(invoiceToUse.items) && invoiceToUse.items.length > 0) {
+        itemsToProcess = invoiceToUse.items;
+      } else if ((invoiceToUse as any).invoice_items && Array.isArray((invoiceToUse as any).invoice_items)) {
+        itemsToProcess = (invoiceToUse as any).invoice_items;
+      } else if ((invoiceToUse as any).products && Array.isArray((invoiceToUse as any).products)) {
+        itemsToProcess = (invoiceToUse as any).products;
+      }
+      
+      if (itemsToProcess && itemsToProcess.length > 0) {
+        const tableStartX = margin + 10;
+        const tableWidth = pageWidth - (2 * margin) - 20;
+        const colWidths = {
+          qty: 20,
+          description: tableWidth - 20 - 30 - 40 - 40,
+          weight: 30,
+          rate: 40,
+          total: 40
+        };
+        
+        const colPositions = {
+          qty: tableStartX,
+          description: tableStartX + colWidths.qty,
+          weight: tableStartX + colWidths.qty + colWidths.description,
+          rate: tableStartX + colWidths.qty + colWidths.description + colWidths.weight,
+          total: tableStartX + colWidths.qty + colWidths.description + colWidths.weight + colWidths.rate
+        };
+        
+        const rowHeight = 10;
+        let currentY = itemY;
+        
+        // Table header
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(0, 0, 0);
+        
+        doc.text('Qty', colPositions.qty + 2, currentY);
+        doc.text('Description', colPositions.description + 2, currentY);
+        doc.text('Weight', colPositions.weight + 2, currentY);
+        doc.text('Rate', colPositions.rate + 2, currentY);
+        doc.text('Total', colPositions.total + 2, currentY);
+        
+        currentY += rowHeight + 5;
+        
+        // Table rows
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        
+        let totalQty = 0;
+        let totalWeight = 0;
+        let grandTotal = 0;
+        
+        itemsToProcess.forEach((item: any) => {
+          if (currentY > maxProductsY) {
+            return;
+          }
+          
+          const productName = item.product_name || item.name || item.description || 'N/A';
+          const qty = parseInt(String(item.quantity || item.qty || 1));
+          const rate = parseFloat(String(item.rate || item.price || 0));
+          const weight = parseFloat(String(item.weight || item.gross_weight || 0));
+          const total = parseFloat(String(item.total || (rate * (weight > 0 ? weight : qty))));
+          
+          totalQty += qty;
+          totalWeight += weight;
+          grandTotal += total;
+          
+          doc.text(String(qty), colPositions.qty + 2, currentY);
+          
+          const descLines = doc.splitTextToSize(productName, colWidths.description - 4);
+          descLines.forEach((line: string, lineIdx: number) => {
+            doc.text(line, colPositions.description + 2, currentY + (lineIdx * 7));
+          });
+          
+          if (weight > 0) {
+            doc.text(weight.toFixed(3), colPositions.weight + 2, currentY);
+          } else {
+            doc.text('-', colPositions.weight + 2, currentY);
+          }
+          
+          doc.text(`₹${rate.toLocaleString('en-IN')}`, colPositions.rate + 2, currentY);
+          doc.text(`₹${total.toLocaleString('en-IN')}`, colPositions.total + 2, currentY);
+          
+          currentY += Math.max(rowHeight, descLines.length * 7) + 2;
+        });
+        
+        // Summary totals
+        const summaryRightX = pageWidth - margin - 75;
+        const summaryStartY = currentY + 20;
+        
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(0, 0, 0);
+        
+        doc.text(String(totalQty), summaryRightX, summaryStartY);
+        doc.text(totalWeight > 0 ? totalWeight.toFixed(3) : '0.000', summaryRightX, summaryStartY + 10);
+        
+        const subtotal = parseFloat(String(invoiceToUse.subtotal || grandTotal));
+        doc.text(`₹${subtotal.toLocaleString('en-IN')}`, summaryRightX, summaryStartY + 20);
+        
+        if (invoiceToUse.discount_amount && invoiceToUse.discount_amount > 0) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(11);
+          const discount = Math.round(parseFloat(invoiceToUse.discount_amount.toString()));
+          doc.text(`₹${discount.toLocaleString('en-IN')}`, summaryRightX, summaryStartY + 30);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+        }
+        
+        const totalAmount = parseFloat(String(invoiceToUse.total_amount || grandTotal));
+        doc.setFontSize(12);
+        doc.text(`₹${totalAmount.toLocaleString('en-IN')}`, summaryRightX, summaryStartY + 40);
+      }
 
-    // Signature lines (right side, below summary)
-    const signatureY = yPosition + 50;
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
-    doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
-
-    // Note: Footer bar and Tamil text are already in the background image
-    // No need to draw them separately
-
-    // Download
-      const invoiceNumber = invoice.invoice_number || 'INV-UNKNOWN';
-      doc.save(`Invoice-${invoiceNumber}.pdf`);
-    success('Invoice PDF downloaded successfully!');
+      // Download
+      const invNum = invoiceToUse.invoice_number || 'INV-UNKNOWN';
+      doc.save(`Invoice-${invNum}.pdf`);
+      success('Invoice PDF downloaded successfully!');
     } catch (err) {
       console.error('Error generating invoice PDF:', err);
       error('Failed to generate invoice PDF. Please try again.');
     }
   };
 
-  const generateBillPDF = (bill: Bill | any) => {
+  const generateBillPDF = async (bill: Bill | any) => {
     try {
       if (!bill) {
         error('Invalid bill data');
         return;
       }
 
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 20;
-    let yPosition = 25;
+      const isExchange = bill.bill_number?.startsWith('EXCH-');
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 20;
 
-    // Add gold/brown border strips (exact template colors)
-    doc.setFillColor(218, 165, 32); // Gold color for borders
-    doc.rect(0, 0, 10, pageHeight, 'F'); // Left border
-    doc.rect(pageWidth - 10, 0, 10, pageHeight, 'F'); // Right border
-    doc.rect(0, 0, pageWidth, 10, 'F'); // Top border
-    doc.rect(0, pageHeight - 10, pageWidth, 10, 'F'); // Bottom border
-
-    // Header with Tamil text (exact template text)
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('ஸ்ரீ காத்தாயி அம்மன் துணை', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 8;
-    doc.text('வர்ணமிகு நகைகளுக்கு', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 15;
-
-    // Left side business details (exact template layout)
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    
-    // B15 Logo placeholder (blue triangle)
-    doc.setFillColor(0, 0, 255); // Blue color
-    doc.rect(margin, yPosition, 8, 8, 'F');
-    doc.setFillColor(255, 255, 255); // White text
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'bold');
-    doc.text('B15', margin + 2, yPosition + 6);
-    
-    // Reset font
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    
-    doc.text('GSTIN: 33DIZPK7238G1ZP', margin, yPosition + 12);
-    doc.text('Mobile: 98432 95615', margin, yPosition + 20);
-    doc.text('Address: அகரம் சீகூர்', margin, yPosition + 28);
-    doc.text('(பார்டர்) - 621 108.', margin, yPosition + 36);
-    doc.text('பெரம்பலூர் Dt.', margin, yPosition + 44);
-
-    // Right side branding (exact template layout)
-    // VKV Logo placeholder (circular with yellow/red)
-    const logoX = pageWidth - margin - 25;
-    doc.setFillColor(255, 255, 0); // Yellow outer ring
-    doc.circle(logoX, yPosition + 10, 8, 'F');
-    doc.setFillColor(255, 0, 0); // Red inner circle
-    doc.circle(logoX, yPosition + 10, 6, 'F');
-    doc.setFillColor(255, 255, 255); // White text
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'bold');
-    doc.text('VKV', logoX - 2, yPosition + 12);
-    
-    // Tamil words below logo
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'normal');
-    doc.text('நம்பிக்கை', logoX - 4, yPosition + 18);
-    doc.text('தரம்', logoX - 2, yPosition + 24);
-    
-    // Company name (exact Tamil text)
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('ஸ்ரீ வண்ணமயில்', pageWidth - margin, yPosition + 35, { align: 'right' });
-    doc.text('தங்கமாளிகை', pageWidth - margin, yPosition + 45, { align: 'right' });
-    
-    // Slogan in red
-    doc.setFillColor(255, 0, 0); // Red text
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.text('916 KDM ஹால்மார்க் ஷோரூம்', pageWidth - margin, yPosition + 55, { align: 'right' });
-
-    yPosition += 70;
-
-    // Dotted line before Invoice Details
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
-    }
-    yPosition += 8;
-
-    // Invoice Details section header (light gray box)
-    doc.setFillColor(240, 240, 240);
-    doc.rect(margin, yPosition, pageWidth - 2 * margin, 15, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Invoice Details', pageWidth / 2, yPosition + 10, { align: 'center' });
-    yPosition += 20;
-
-    // Check if this is an exchange bill
-    const isExchange = bill.bill_number?.startsWith('EXCH-');
-
-    // Customer information box (left side)
-    const customerBoxHeight = isExchange && (bill as any).old_gold_weight ? 60 : 45;
-    doc.setFillColor(240, 240, 240);
-    doc.rect(margin, yPosition, 120, customerBoxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Customer Name & address', margin + 5, yPosition + 8);
-    doc.setFont('helvetica', 'normal');
-    doc.text(bill.customer_name || '', margin + 5, yPosition + 18);
-    if (bill.customer_phone) {
-      doc.text(`Phone: ${bill.customer_phone}`, margin + 5, yPosition + 28);
-    }
-    
-    // Add exchange details in customer box if applicable
-    if (isExchange && (bill as any).old_gold_weight) {
-      doc.setFont('helvetica', 'bold');
-      doc.text('Old Gold:', margin + 5, yPosition + 38);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${(bill as any).old_gold_weight}g (${(bill as any).old_gold_purity || '22K'})`, margin + 5, yPosition + 48);
-      if ((bill as any).exchange_difference !== undefined) {
-        const diff = (bill as any).exchange_difference;
-        doc.setFont('helvetica', 'bold');
-        doc.text(`${diff >= 0 ? 'Pay' : 'Receive'}:`, margin + 5, yPosition + 56);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`₹${Math.abs(diff).toLocaleString()}`, margin + 5, yPosition + 66);
+      // Load and add invoice background image template (same template for bills)
+      let imageDataUrl: string | null = null;
+      try {
+        const possiblePaths = [
+          '/assets/sample-invoice.png',
+          '/assets/vannaMayil-invoice.jpeg',
+          '/sample-invoice.png',
+          '/vannaMayil-invoice.jpeg',
+          './assets/sample-invoice.png',
+          'assets/sample-invoice.png'
+        ];
+        
+        for (const imagePath of possiblePaths) {
+          try {
+            const response = await fetch(imagePath);
+            if (response.ok) {
+              const blob = await response.blob();
+              imageDataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+              });
+              break;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+        
+        if (imageDataUrl) {
+          const currentImageDataUrl = imageDataUrl;
+          await new Promise<void>((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              try {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.fillStyle = 'white';
+                  ctx.fillRect(0, 0, canvas.width, canvas.height);
+                  ctx.globalAlpha = 1.0;
+                  ctx.drawImage(img, 0, 0);
+                  ctx.globalAlpha = 1.0;
+                  
+                  const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
+                  const templateImageDataUrl = canvas.toDataURL(imageFormat === 'PNG' ? 'image/png' : 'image/jpeg', 1.0);
+                  doc.addImage(templateImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
+                }
+              } catch (canvasError) {
+                if (currentImageDataUrl) {
+                  const imageFormat = currentImageDataUrl.includes('data:image/png') ? 'PNG' : 'JPEG';
+                  doc.addImage(currentImageDataUrl, imageFormat, 0, 0, pageWidth, pageHeight);
+                }
+              }
+              resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = currentImageDataUrl;
+          });
+        }
+      } catch (bgError) {
+        console.warn('Could not load invoice background image:', bgError);
       }
-    }
+      
+      if (!imageDataUrl) {
+        console.warn('WARNING: Background image not loaded! Bill will not match template.');
+      }
 
-    // Right side boxes (DATE, Time, NO)
-    const rightBoxX = pageWidth - margin - 80;
-    const boxWidth = 80;
-    const boxHeight = 12;
-    
-    // DATE box
-    doc.setFillColor(240, 240, 240);
-    doc.rect(rightBoxX, yPosition, boxWidth, boxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('DATE', rightBoxX + 5, yPosition + 8);
-    doc.setFont('helvetica', 'normal');
-    const billDate = bill.created_at ? new Date(bill.created_at) : new Date();
-    doc.text(billDate.toLocaleDateString('en-IN'), rightBoxX + 5, yPosition + 18);
-    
-    // Time box
-    doc.setFillColor(240, 240, 240);
-    doc.rect(rightBoxX, yPosition + 15, boxWidth, boxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFont('helvetica', 'bold');
-    doc.text('Time', rightBoxX + 5, yPosition + 23);
-    doc.setFont('helvetica', 'normal');
-    doc.text(billDate.toLocaleTimeString('en-IN'), rightBoxX + 5, yPosition + 33);
-    
-    // NO box
-    doc.setFillColor(240, 240, 240);
-    doc.rect(rightBoxX, yPosition + 30, boxWidth, boxHeight, 'F');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.setFont('helvetica', 'bold');
-    doc.text('NO', rightBoxX + 5, yPosition + 38);
-    doc.setFont('helvetica', 'normal');
-    doc.text(bill.bill_number || '', rightBoxX + 5, yPosition + 48);
+      // Customer information - overlay on template
+      const customerInfoY = 95;
+      const customerInfoX = margin + 5;
+      const customerBoxHeight = isExchange && (bill as any).old_gold_weight ? 60 : 45;
+      
+      // Cover grey box area with white
+      doc.setFillColor(255, 255, 255);
+      doc.rect(customerInfoX - 5, customerInfoY - 8, 120, customerBoxHeight + 5, 'F');
+      
+      // Add customer information
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text('Customer Name & address', customerInfoX, customerInfoY);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const customerName = bill.customer_name || '';
+      if (customerName) {
+        doc.text(customerName, customerInfoX, customerInfoY + 13);
+      }
+      
+      if (bill.customer_phone) {
+        doc.text(`Phone: ${bill.customer_phone}`, customerInfoX, customerInfoY + 24);
+      }
+      
+      // Add exchange details if applicable
+      if (isExchange && (bill as any).old_gold_weight) {
+        doc.setFont('helvetica', 'bold');
+        doc.text('Old Gold:', customerInfoX, customerInfoY + 35);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`${(bill as any).old_gold_weight}g (${(bill as any).old_gold_purity || '22K'})`, customerInfoX, customerInfoY + 45);
+        if ((bill as any).exchange_difference !== undefined) {
+          const diff = (bill as any).exchange_difference;
+          doc.setFont('helvetica', 'bold');
+          doc.text(`${diff >= 0 ? 'Pay' : 'Receive'}:`, customerInfoX, customerInfoY + 55);
+          doc.setFont('helvetica', 'normal');
+          doc.text(`₹${Math.abs(diff).toLocaleString()}`, customerInfoX, customerInfoY + 65);
+        }
+      }
 
-    yPosition += (isExchange && (bill as any).old_gold_weight ? 75 : 60);
+      // Bill date, time, and number
+      const rightInfoX = pageWidth - margin - 80;
+      const billDate = bill.created_at ? new Date(bill.created_at) : new Date();
+      const dateBoxWidth = 80;
+      
+      // Cover grey boxes area with white
+      doc.setFillColor(255, 255, 255);
+      doc.rect(rightInfoX - 5, customerInfoY - 8, dateBoxWidth + 10, 40, 'F');
+      
+      // DATE and Time on first line
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      
+      doc.text('DATE', rightInfoX, customerInfoY);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const dateStr = billDate.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const dateLabelWidth = doc.getTextWidth('DATE');
+      doc.text(dateStr, rightInfoX + dateLabelWidth + 5, customerInfoY);
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      const timeLabelX = rightInfoX + 50;
+      doc.text('Time', timeLabelX, customerInfoY);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const timeStr = billDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+      const timeLabelWidth = doc.getTextWidth('Time');
+      doc.text(timeStr, timeLabelX + timeLabelWidth + 5, customerInfoY);
+      
+      // NO and bill number on second line
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('NO', rightInfoX, customerInfoY + 18);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const billNumber = bill.bill_number || '';
+      const noLabelWidth = doc.getTextWidth('NO');
+      doc.text(billNumber, rightInfoX + noLabelWidth + 5, customerInfoY + 18);
 
-    // First dotted line
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
-    }
-    yPosition += 15;
+      // Products list
+      const invoiceDetailsEndY = customerInfoY + (isExchange && (bill as any).old_gold_weight ? 75 : 60);
+      const dottedLineY = invoiceDetailsEndY + 10;
+      const productsStartY = dottedLineY + 8;
+      const maxProductsY = 240;
+      
+      let itemY = productsStartY;
+      
+      let itemsToProcess: any[] = [];
+      if (bill.items && Array.isArray(bill.items) && bill.items.length > 0) {
+        itemsToProcess = bill.items;
+      }
+      
+      if (itemsToProcess && itemsToProcess.length > 0) {
+        const tableStartX = margin + 10;
+        const tableWidth = pageWidth - (2 * margin) - 20;
+        const colWidths = {
+          qty: 20,
+          description: tableWidth - 20 - 30 - 40 - 40,
+          weight: 30,
+          rate: 40,
+          total: 40
+        };
+        
+        const colPositions = {
+          qty: tableStartX,
+          description: tableStartX + colWidths.qty,
+          weight: tableStartX + colWidths.qty + colWidths.description,
+          rate: tableStartX + colWidths.qty + colWidths.description + colWidths.weight,
+          total: tableStartX + colWidths.qty + colWidths.description + colWidths.weight + colWidths.rate
+        };
+        
+        const rowHeight = 10;
+        let currentY = itemY;
+        
+        // Table header
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(0, 0, 0);
+        
+        doc.text('Qty', colPositions.qty + 2, currentY);
+        doc.text('Description', colPositions.description + 2, currentY);
+        doc.text('Weight', colPositions.weight + 2, currentY);
+        doc.text('Rate', colPositions.rate + 2, currentY);
+        doc.text('Total', colPositions.total + 2, currentY);
+        
+        currentY += rowHeight + 5;
+        
+        // Table rows
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        
+        let totalQty = 0;
+        let totalWeight = 0;
+        let grandTotal = 0;
+        
+        itemsToProcess.forEach((item: any) => {
+          if (currentY > maxProductsY) {
+            return;
+          }
+          
+          const productName = item.product_name || item.name || item.description || 'N/A';
+          const qty = parseInt(String(item.quantity || item.qty || 1));
+          const rate = parseFloat(String(item.rate || item.price || 0));
+          const weight = parseFloat(String(item.weight || item.gross_weight || 0));
+          const total = parseFloat(String(item.total || (rate * (weight > 0 ? weight : qty))));
+          
+          totalQty += qty;
+          totalWeight += weight;
+          grandTotal += total;
+          
+          doc.text(String(qty), colPositions.qty + 2, currentY);
+          
+          const descLines = doc.splitTextToSize(productName, colWidths.description - 4);
+          descLines.forEach((line: string, lineIdx: number) => {
+            doc.text(line, colPositions.description + 2, currentY + (lineIdx * 7));
+          });
+          
+          if (weight > 0) {
+            doc.text(weight.toFixed(3), colPositions.weight + 2, currentY);
+          } else {
+            doc.text('-', colPositions.weight + 2, currentY);
+          }
+          
+          doc.text(`₹${rate.toLocaleString('en-IN')}`, colPositions.rate + 2, currentY);
+          doc.text(`₹${total.toLocaleString('en-IN')}`, colPositions.total + 2, currentY);
+          
+          currentY += Math.max(rowHeight, descLines.length * 7) + 2;
+        });
+        
+        // Summary totals
+        const summaryRightX = pageWidth - margin - 75;
+        const summaryStartY = currentY + 20;
+        
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(0, 0, 0);
+        
+        doc.text(String(totalQty), summaryRightX, summaryStartY);
+        doc.text(totalWeight > 0 ? totalWeight.toFixed(3) : '0.000', summaryRightX, summaryStartY + 10);
+        
+        const subtotal = parseFloat(String(bill.subtotal || grandTotal));
+        doc.text(`₹${subtotal.toLocaleString('en-IN')}`, summaryRightX, summaryStartY + 20);
+        
+        if (bill.discount_amount && bill.discount_amount > 0) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(11);
+          const discount = Math.round(parseFloat(bill.discount_amount.toString()));
+          doc.text(`₹${discount.toLocaleString('en-IN')}`, summaryRightX, summaryStartY + 30);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+        }
+        
+        const totalAmount = parseFloat(String(bill.total_amount || grandTotal));
+        doc.setFontSize(12);
+        doc.text(`₹${totalAmount.toLocaleString('en-IN')}`, summaryRightX, summaryStartY + 40);
+      }
 
-    // Items table header
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    const colPositions = [margin + 5, margin + 30, margin + 95, margin + 130, margin + 165, margin + 190];
-    
-    doc.text('Qty', colPositions[0], yPosition);
-    doc.text('Description', colPositions[1], yPosition);
-    doc.text('HSN/SAC', colPositions[2], yPosition);
-    doc.text('Rate', colPositions[3], yPosition);
-    doc.text('Gross Wt.', colPositions[4], yPosition);
-    doc.text('Taxable Amount', colPositions[5], yPosition);
-    yPosition += 10;
-
-    // Items table data
-    doc.setFont('helvetica', 'normal');
-    if (bill.items && Array.isArray(bill.items)) {
-      bill.items.forEach((item: any) => {
-        doc.text(item.quantity?.toString() || '1', colPositions[0], yPosition);
-        doc.text(item.product_name || 'N/A', colPositions[1], yPosition);
-        doc.text('711319', colPositions[2], yPosition); // HSN code for gold jewelry
-        doc.text(`₹${item.rate?.toLocaleString() || '0'}`, colPositions[3], yPosition);
-        doc.text(item.weight?.toString() || '0', colPositions[4], yPosition);
-        doc.text(`₹${item.total?.toLocaleString() || '0'}`, colPositions[5], yPosition);
-        yPosition += 8;
-      });
-    }
-
-    yPosition += 10;
-
-    // Second dotted line
-    for (let i = margin; i < pageWidth - margin; i += 4) {
-      doc.line(i, yPosition, i + 2, yPosition);
-    }
-    yPosition += 15;
-
-    // Summary section
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text(`Total Qty: ${bill.items?.length || 0}`, margin + 5, yPosition);
-    doc.text(`Total Gross Weight: ${bill.items?.reduce((sum: number, item: any) => sum + (item.weight || 0), 0).toFixed(3) || '0'}`, margin + 5, yPosition + 8);
-    doc.text(`Total Taxable Amount: ₹${bill.subtotal?.toLocaleString() || '0'}`, margin + 5, yPosition + 16);
-    
-    if (bill.discount_amount && bill.discount_amount > 0) {
-      doc.text(`Less Special Discount Rs 50/-PER GMS: ₹${Math.round(bill.discount_amount)}`, margin + 5, yPosition + 24);
-      yPosition += 8;
-    }
-    
-    doc.text(`Net Amount: ₹${bill.total_amount?.toLocaleString() || '0'}`, margin + 5, yPosition + 32);
-
-    // Peacock watermark (simplified version)
-    const watermarkY = pageHeight - 80;
-    doc.setFillColor(240, 240, 240, 0.3); // Semi-transparent gray
-    doc.setFontSize(60);
-    doc.setFont('helvetica', 'bold');
-    doc.text('🦚', pageWidth / 2, watermarkY, { align: 'center' });
-
-    // Signature lines (right side)
-    const signatureY = watermarkY + 20;
-    doc.setLineWidth(0.5);
-    doc.setDrawColor(150, 150, 150);
-    doc.line(pageWidth - margin - 60, signatureY, pageWidth - margin, signatureY);
-    doc.line(pageWidth - margin - 60, signatureY + 10, pageWidth - margin, signatureY + 10);
-
-    // Footer messages (exact Tamil text)
-    const footerY = pageHeight - 25;
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setFillColor(0, 0, 0); // Black text
-    doc.text('உங்களது வளர்ச்சி!', margin + 5, footerY);
-    doc.text('எங்களுக்கு மகிழ்ச்சி!!', pageWidth - margin - 5, footerY, { align: 'right' });
-
-    // Download
-      const billNumber = bill.bill_number || (bill as any).invoice_number || 'BILL-UNKNOWN';
-      doc.save(`Bill-${billNumber}.pdf`);
-    success('Bill PDF downloaded successfully!');
+      // Download
+      const billNum = bill.bill_number || 'BILL-UNKNOWN';
+      doc.save(`${isExchange ? 'ExchangeBill' : 'Bill'}-${billNum}.pdf`);
+      success(`${isExchange ? 'Exchange Bill' : 'Bill'} PDF downloaded successfully!`);
     } catch (err) {
       console.error('Error generating bill PDF:', err);
       error('Failed to generate bill PDF. Please try again.');
@@ -1078,7 +1159,7 @@ const Dashboard: React.FC = () => {
     if (transaction.invoice_number) {
       await generateInvoicePDF(transaction as Invoice);
     } else if (transaction.bill_number) {
-      generateBillPDF(transaction as Bill);
+      await generateBillPDF(transaction as Bill);
     } else {
       error(t('dashboard.invalidTransactionData'));
     }
@@ -1119,23 +1200,23 @@ const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">{t('dashboard.title')}</h1>
-          <p className="text-gray-600 mt-1">{t('dashboard.welcomeMessage')}</p>
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">{t('dashboard.title')}</h1>
+          <p className="text-gray-600 mt-1 text-sm lg:text-base">{t('dashboard.welcomeMessage')}</p>
         </div>
-        <div className="flex items-center space-x-4">
+        <div className="flex flex-wrap items-center gap-3 lg:gap-4 flex-shrink-0">
           {/* Filter Dropdown */}
           <div className="relative filter-dropdown-container">
             <button
               onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-              className="flex items-center space-x-2 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-300 hover:border-amber-500 hover:shadow-md transition-all duration-200 min-w-[200px]"
+              className="flex items-center space-x-2 bg-white px-3 lg:px-4 py-2 rounded-lg shadow-sm border border-gray-300 hover:border-amber-500 hover:shadow-md transition-all duration-200 w-full sm:w-auto min-w-[180px] max-w-[250px] h-10"
             >
-            <Filter className="h-4 w-4 text-gray-500" />
-              <span className="text-sm font-medium text-gray-700 flex-1 text-left">
+              <Filter className="h-4 w-4 text-gray-500 flex-shrink-0" />
+              <span className="text-sm font-medium text-gray-700 flex-1 text-left truncate min-w-0">
                 {getFilterLabel()}
               </span>
-              <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${showFilterDropdown ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform flex-shrink-0 ${showFilterDropdown ? 'rotate-180' : ''}`} />
             </button>
 
             {/* Dropdown Menu */}
@@ -1219,17 +1300,17 @@ const Dashboard: React.FC = () => {
               success(t('dashboard.refreshSuccess'));
             }}
             disabled={isLoading}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+            className={`flex items-center space-x-2 px-3 lg:px-4 py-2 rounded-lg transition-colors h-10 ${
               isLoading ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
             }`}
             title={t('dashboard.refresh')}
           >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>{t('dashboard.refresh')}</span>
+            <RefreshCw className={`h-4 w-4 flex-shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="text-sm whitespace-nowrap hidden sm:inline">{t('dashboard.refresh')}</span>
           </button>
-          <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-lg shadow-sm border">
-            <Calendar className="h-5 w-5 text-gray-500" />
-            <span className="text-gray-700 font-medium">
+          <div className="flex items-center space-x-2 bg-white px-3 lg:px-4 py-2 rounded-lg shadow-sm border h-10 min-w-0">
+            <Calendar className="h-4 lg:h-5 w-4 lg:w-5 text-gray-500 flex-shrink-0" />
+            <span className="text-gray-700 font-medium text-xs lg:text-sm whitespace-nowrap truncate">
               {new Date().toLocaleDateString('en-IN', {
                 weekday: 'long',
                 year: 'numeric',
@@ -1272,8 +1353,8 @@ const Dashboard: React.FC = () => {
         />
       </div>
 
-      {/* Filtered Sales Stats - Only show when filter is actively applied (not default) */}
-      {filteredStats.totalSales > 0 && filterType !== 'month' && (
+      {/* Filtered Sales Stats - Show when filter is applied and has data */}
+      {filteredStats.totalSales > 0 && (
         <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-6 border border-amber-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900 flex items-center">

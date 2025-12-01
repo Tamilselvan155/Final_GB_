@@ -42,7 +42,7 @@ const Settings: React.FC = () => {
   const [importProgress, setImportProgress] = useState(0);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [lastBackup, setLastBackup] = useState<string | null>(null);
-  const [exportStats, setExportStats] = useState<{products: number, customers: number, invoices: number, bills: number} | null>(null);
+  const [exportStats, setExportStats] = useState<{products: number, customers: number, invoices: number, bills: number, exchangeBills: number} | null>(null);
   const [importStats, setImportStats] = useState<{imported: number, total: number, errors: number} | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
@@ -217,13 +217,13 @@ const Settings: React.FC = () => {
             'ID': product.id,
           'Product Name': product.name,
           'Category': product.category,
+          'Gender/Age': product.product_category || product.gender_category || '',
           'SKU': product.sku,
           'HUID': product.huid || '',
           'Barcode': product.barcode || '',
           'Weight (g)': product.weight,
           'Purity': product.purity,
           'Material Type': product.material_type || '',
-          'Making Charge (₹)': product.making_charge,
           'Current Rate (₹/g)': product.current_rate,
           'Stock Quantity': product.stock_quantity,
           'Min Stock Level': product.min_stock_level,
@@ -394,7 +394,8 @@ const Settings: React.FC = () => {
         products: products?.length || 0,
         customers: customers?.length || 0,
         invoices: invoices?.length || 0,
-        bills: regularBills.length + exchangeBills.length
+        bills: regularBills.length,
+        exchangeBills: exchangeBills.length
       });
       
     } catch (err) {
@@ -651,13 +652,13 @@ const Settings: React.FC = () => {
           'ID': product.id,
           'Name': product.name,
           'Category': product.category,
+          'Gender/Age': product.product_category || product.gender_category || '',
           'SKU': product.sku,
           'HUID': product.huid || '',
           'Barcode': product.barcode || '',
           'Weight (g)': product.weight,
           'Purity': product.purity,
           'Material Type': product.material_type || '',
-          'Making Charge (₹)': product.making_charge,
           'Current Rate (₹/g)': product.current_rate,
           'Stock Quantity': product.stock_quantity,
           'Min Stock Level': product.min_stock_level,
@@ -1533,13 +1534,13 @@ const Settings: React.FC = () => {
           id: product.ID || product.id || generateId(),
           name: product['Product Name'] || product.Name || product.name || '',
           category: product.Category || product.category || 'Chains',
+          product_category: product['Gender/Age'] || product.product_category || product.gender_category || 'Men',
           sku: product.SKU || product.sku || generateId(),
           huid: product.HUID || product.huid || (product.SKU || product.sku ? `${product.SKU || product.sku}_HUID` : generateId()),
           barcode: product.Barcode || product.barcode || '',
           weight: parseFloat(product['Weight (g)'] || product.weight || 0) || 0,
           purity: product.Purity || product.purity || '22K',
           material_type: product['Material Type'] || product.material_type || 'Gold',
-          making_charge: parseFloat(product['Making Charge (₹)'] || product.making_charge || 0) || 0,
           current_rate: parseFloat(product['Current Rate (₹/g)'] || product.current_rate || 0) || 0,
           stock_quantity: parseInt(product['Stock Quantity'] || product.stock_quantity || 0) || 0,
           min_stock_level: parseInt(product['Min Stock Level'] || product.min_stock_level || 1) || 1,
@@ -1824,12 +1825,12 @@ const Settings: React.FC = () => {
           'ID': product.id || '',
           'Product Name': product.name || '',
           'Category': product.category || '',
+          'Gender/Age': product.product_category || product.gender_category || '',
           'SKU': product.sku || '',
           'Barcode': product.barcode || '',
           'Weight (g)': product.weight || 0,
           'Purity': product.purity || '',
           'Material Type': product.material_type || '',
-          'Making Charge (₹)': product.making_charge || 0,
           'Current Rate (₹/g)': product.current_rate || 0,
           'Stock Quantity': product.stock_quantity || 0,
           'Min Stock Level': product.min_stock_level || 0,
@@ -1845,12 +1846,12 @@ const Settings: React.FC = () => {
           'ID': '',
           'Product Name': 'No products found',
           'Category': '',
+          'Gender/Age': '',
           'SKU': '',
           'Barcode': '',
           'Weight (g)': '',
           'Purity': '',
           'Material Type': '',
-          'Making Charge (₹)': '',
           'Current Rate (₹/g)': '',
           'Stock Quantity': '',
           'Min Stock Level': '',
@@ -2399,6 +2400,11 @@ const Settings: React.FC = () => {
               productData.category = 'Chains';
             }
             
+            // Product category (Gender/Age) - only default if missing
+            if (!productData.product_category || (typeof productData.product_category === 'string' && productData.product_category.trim() === '')) {
+              productData.product_category = 'Men';
+            }
+            
             // Weight - backend requires weight > 0, so ensure it's at least 1
             if (productData.weight === undefined || productData.weight === null || productData.weight === '') {
               productData.weight = 1;
@@ -2420,13 +2426,6 @@ const Settings: React.FC = () => {
             // Material type - only default if missing
             if (!productData.material_type || (typeof productData.material_type === 'string' && productData.material_type.trim() === '')) {
               productData.material_type = 'Gold';
-            }
-            
-            // Making charge - preserve 0, only default if truly missing
-            if (productData.making_charge === undefined || productData.making_charge === null || productData.making_charge === '') {
-              productData.making_charge = 0;
-            } else {
-              productData.making_charge = typeof productData.making_charge === 'number' ? productData.making_charge : parseFloat(productData.making_charge) || 0;
             }
             
             // Current rate - preserve 0 if it was in Excel, only set default if truly missing
@@ -3255,7 +3254,7 @@ const Settings: React.FC = () => {
                         <CheckCircle className="h-4 w-4" />
                         <span className="text-sm font-medium">Export Completed Successfully!</span>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
                         <div className="text-center">
                           <div className="font-semibold text-green-800">{exportStats.products}</div>
                           <div className="text-green-600">Products</div>
@@ -3271,6 +3270,10 @@ const Settings: React.FC = () => {
                         <div className="text-center">
                           <div className="font-semibold text-green-800">{exportStats.bills}</div>
                           <div className="text-green-600">Bills</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="font-semibold text-green-800">{exportStats.exchangeBills}</div>
+                          <div className="text-green-600">Exchange Bills</div>
                         </div>
                       </div>
                     </div>

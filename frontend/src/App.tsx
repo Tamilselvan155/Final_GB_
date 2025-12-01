@@ -10,6 +10,7 @@ import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
 import Billing from './components/Billing';
 import Settings from './components/Settings';
+import UserManagement from './components/UserManagement';
 
 const GOOGLE_CLIENT_ID = '296719475462-h4avdp1qknq5p8saig969ilt1mih0do4.apps.googleusercontent.com';
 
@@ -31,6 +32,14 @@ function App() {
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/inventory" element={<Inventory />} />
                         <Route path="/billing" element={<Billing />} />
+                        <Route 
+                          path="/users" 
+                          element={
+                            <ProtectedRoute allowedRoles={['superadmin', 'admin']}>
+                              <UserManagement />
+                            </ProtectedRoute>
+                          } 
+                        />
                         <Route path="/settings" element={<Settings />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                       </Routes>

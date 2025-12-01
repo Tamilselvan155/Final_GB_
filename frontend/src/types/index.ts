@@ -91,8 +91,9 @@ export interface InvoiceItem {
   product_name: string;
   weight: number;
   rate: number;
-  making_charge: number;
+  making_charge?: number;
   wastage_charge?: number;
+  wastage_percentage?: number;
   quantity: number;
   total: number;
 }

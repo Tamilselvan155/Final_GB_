@@ -7,6 +7,7 @@ import {
   Settings,
   Crown,
   User,
+  Users,
   MoreVertical,
   HelpCircle,
   ChevronLeft,
@@ -30,12 +31,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isMobile, setIsMobile] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
-  const navigation = [
+  const allNavigation = [
     { name: t('common.dashboard'), href: '/', icon: LayoutDashboard },
     { name: t('common.inventory'), href: '/inventory', icon: Package },
     { name: t('common.billing'), href: '/billing', icon: Receipt },
+    { name: t('settings.userManagement') || 'User Management', href: '/users', icon: Users },
     { name: t('common.settings'), href: '/settings', icon: Settings },
   ];
+
+  // Filter navigation based on user role
+  const navigation = user?.role === 'finance_manager'
+    ? allNavigation.filter(item => 
+        item.href === '/' || 
+        item.href === '/inventory' || 
+        item.href === '/billing'
+      )
+    : allNavigation;
 
   const isActive = (path: string) => {
     return location.pathname === path;
@@ -250,7 +261,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         {/* Mobile Overlay */}
         {isMobile && sidebarOpen && (
           <div 
-            className="fixed inset-0 bg-black bg-opacity-50 z-30"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30"
             onClick={() => setSidebarOpen(false)}
           />
         )}

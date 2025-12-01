@@ -11,6 +11,10 @@ router.post('/login', authController.login);
 router.post('/logout', authenticate, authController.logout);
 router.get('/me', authenticate, authController.getCurrentUser);
 router.get('/users', authenticate, authController.getUsers);
+router.post('/users', authenticate, authController.createUser);
+router.put('/users/:id', authenticate, authController.updateUser);
+router.delete('/users/:id', authenticate, authController.deleteUser);
+router.post('/users/:id/change-password', authenticate, authController.changePassword);
 
 export default router;
 

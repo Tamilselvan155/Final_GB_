@@ -50,6 +50,11 @@ export const apiEndpoints = {
     logout: () => api.post('/auth/logout'),
     getCurrentUser: () => api.get('/auth/me'),
     getUsers: () => api.get('/auth/users'),
+    createUser: (data: any) => api.post('/auth/users', data),
+    updateUser: (id: number, data: any) => api.put(`/auth/users/${id}`, data),
+    deleteUser: (id: number) => api.delete(`/auth/users/${id}`),
+    changePassword: (id: number, data: { newPassword: string; currentPassword?: string }) => 
+      api.post(`/auth/users/${id}/change-password`, data),
   },
   
   // Products

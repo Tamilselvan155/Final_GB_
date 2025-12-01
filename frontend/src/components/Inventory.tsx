@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Package, Plus, Search, CreditCard, Trash2, AlertTriangle, Scan, Download, Upload, Info, Scale, Barcode, User, Hash, Sparkles, Clock, Gauge, Wrench, X, RotateCcw, FolderPlus, Trash } from 'lucide-react';
+import { Package, Plus, Search, CreditCard, Trash2, AlertTriangle, Scan, Info, Scale, Barcode, User, Hash, Sparkles, Clock, Wrench, X, RotateCcw, FolderPlus, Trash, ChevronDown, AlertCircle } from 'lucide-react';
 import Database from '../utils/database';
 import { Product } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -54,6 +54,34 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
     material_type?: string;
     status?: string;
   }>({});
+
+  // Get purity options based on material type
+  const getPurityOptions = (materialType: string): string[] => {
+    switch (materialType) {
+      case 'Gold':
+        return ['24K', '22K', '18K', '14K'];
+      case 'Silver':
+        return ['999', '925', '900', '875'];
+      case 'Platinum':
+        return ['950', '900', '850'];
+      case 'Diamond':
+        return ['D', 'E', 'F', 'G', 'H', 'I', 'J'];
+      default:
+        return ['24K', '22K', '18K', '14K', '999', '925', 'Other'];
+    }
+  };
+
+  // Update purity when material type changes
+  useEffect(() => {
+    const purityOptions = getPurityOptions(formData.material_type || 'Gold');
+    // If current purity is not in the new options, reset to first option
+    if (!purityOptions.includes(formData.purity || '')) {
+      setFormData(prev => ({
+        ...prev,
+        purity: purityOptions[0] || '22K'
+      }));
+    }
+  }, [formData.material_type]);
 
   const validateBarcode = (barcode: string): boolean => {
     if (!barcode || barcode.length < 3) return false;
@@ -259,66 +287,88 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
   };
 
   return createPortal(
-    <div className="fixed top-0 left-0 right-0 bottom-0 w-screen h-screen bg-black bg-opacity-50 flex items-center justify-center p-4 z-[9999] m-0" style={{ margin: 0 }}>
-      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">
-            {product ? t('inventory.editProduct') : t('inventory.addNewProduct')}
-          </h2>
-        </div>
-        <div className="p-6 space-y-5">
-          <div className="grid grid-cols-2 gap-5">
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                {t('inventory.productName')} *
-              </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => {
-                  setFormData({ ...formData, name: e.target.value });
-                  if (formErrors.name) {
-                    setFormErrors({ ...formErrors, name: undefined });
-                  }
-                }}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                  formErrors.name ? 'border-red-500' : 'border-gray-300'
-                }`}
-                required
-              />
-              {formErrors.name && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.name}</p>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-sm font-medium text-gray-700">
-                  {t('common.category')} *
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowCategoryModal(!showCategoryModal)}
-                  className="flex items-center space-x-1 px-2 py-1 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
-                  title={t('inventory.manageCategories')}
-                >
-                  <FolderPlus className="h-3 w-3" />
-                  <span>{showCategoryModal ? t('common.close') : t('inventory.manageCategories')}</span>
-                </button>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-scale-in">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-gray-100">
+        {/* Header Section */}
+        <div className="bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 px-4 py-3 border-b border-amber-200/50">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 bg-amber-500 rounded-lg shadow-md">
+                  <Package className="h-5 w-5 text-white" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900">
+                  {product ? t('inventory.editProduct') : t('inventory.addNewProduct')}
+                </h2>
               </div>
-              <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-              >
-                {['Chains', 'Rings', 'Earrings', 'Bracelets', 'Necklaces', 'Bangles', ...availableCategories].map(category => {
-                  const translationKey = `inventory.${category.toLowerCase()}`;
-                  const translatedName = t(translationKey);
-                  const displayName = translatedName !== translationKey ? translatedName : category;
-                  return (
-                    <option key={category} value={category}>{displayName}</option>
-                  );
-                })}
-              </select>
+            </div>
+            <button
+              onClick={onCancel}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all flex-shrink-0"
+              title={t('inventory.close')}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content Section */}
+        <div className="p-3 space-y-3 overflow-y-auto flex-grow bg-gray-50/30">
+          {/* Basic Information Section */}
+          <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  {t('inventory.productName')} *
+                </label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => {
+                    setFormData({ ...formData, name: e.target.value });
+                    if (formErrors.name) {
+                      setFormErrors({ ...formErrors, name: undefined });
+                    }
+                  }}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                    formErrors.name ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                />
+                {formErrors.name && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.name}</p>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {t('common.category')} *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowCategoryModal(!showCategoryModal)}
+                    className="flex items-center space-x-1 px-2 py-1 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
+                    title={t('inventory.manageCategories')}
+                  >
+                    <FolderPlus className="h-3 w-3" />
+                    <span>{showCategoryModal ? t('common.close') : t('inventory.manageCategories')}</span>
+                  </button>
+                </div>
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                >
+                  {['Chains', 'Rings', 'Earrings', 'Bracelets', 'Necklaces', 'Bangles', ...availableCategories].map(category => {
+                    const translationKey = `inventory.${category.toLowerCase()}`;
+                    const translatedName = t(translationKey);
+                    const displayName = translatedName !== translationKey ? translatedName : category;
+                    return (
+                      <option key={category} value={category}>{displayName}</option>
+                    );
+                  })}
+                </select>
+              </div>
             </div>
           </div>
           
@@ -326,7 +376,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
           {showCategoryModal && (
             <div className="col-span-2 p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
               {/* Add New Category */}
-              <div>
+            <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-2">
                   {t('inventory.addNewCategory')}
                 </label>
@@ -418,298 +468,323 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
             </div>
           )}
           
-          <div className="grid grid-cols-2 gap-5">
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                {t('inventory.genderAgeCategory')}
-              </label>
-              <select
-                value={formData.product_category || ''}
-                onChange={(e) => setFormData({ ...formData, product_category: (e.target.value as 'Men' | 'Women' | 'Kids') || undefined })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-              >
-                <option value="">{t('inventory.selectGenderAgeCategory')}</option>
-                {['Men', 'Women', 'Kids'].map(category => (
-                  <option key={category} value={category}>{t(`inventory.${category.toLowerCase()}`)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                {t('inventory.sku')} *
-              </label>
-              <input
-                type="text"
-                value={formData.sku}
-                onChange={(e) => {
-                  setFormData({ ...formData, sku: e.target.value });
-                  if (formErrors.sku) {
-                    setFormErrors({ ...formErrors, sku: undefined });
-                  }
-                }}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                  formErrors.sku ? 'border-red-500' : 'border-gray-300'
-                }`}
-                required
-              />
-              {formErrors.sku && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.sku}</p>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                {t('inventory.huid')} *
-              </label>
-              <input
-                type="text"
-                value={formData.huid || ''}
-                onChange={(e) => {
-                  setFormData({ ...formData, huid: e.target.value });
-                  if (formErrors.huid) {
-                    setFormErrors({ ...formErrors, huid: undefined });
-                  }
-                }}
-                placeholder={t('inventory.huidPlaceholder')}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                  formErrors.huid ? 'border-red-500' : 'border-gray-300'
-                }`}
-                required
-              />
-              {formErrors.huid && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.huid}</p>
-              )}
-            </div>
-            <div className=" flex flex-col">
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-sm font-medium text-gray-700">{t('inventory.barcode')} *</label>
-                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">{t('inventory.barcodeFocusShortcut')}</span>
+          {/* Identification Section */}
+          <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  {t('inventory.genderAgeCategory')}
+                </label>
+                <select
+                  value={formData.product_category || ''}
+                  onChange={(e) => setFormData({ ...formData, product_category: (e.target.value as 'Men' | 'Women' | 'Kids') || undefined })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                >
+                  <option value="">{t('inventory.selectGenderAgeCategory')}</option>
+                  {['Men', 'Women', 'Kids'].map(category => (
+                    <option key={category} value={category}>{t(`inventory.${category.toLowerCase()}`)}</option>
+                  ))}
+                </select>
               </div>
-              <div className="flex space-x-2">
-                <div className="flex-1 relative">
-                  <input
-                    ref={barcodeInputRef}
-                    type="text"
-                    value={formData.barcode}
-                    onChange={(e) => {
-                      handleBarcodeInput(e.target.value);
-                      if (formErrors.barcode) {
-                        setFormErrors({ ...formErrors, barcode: undefined });
-                      }
-                    }}
-                    onKeyDown={handleBarcodeKeyDown}
-                    placeholder={t('inventory.barcodePlaceholder')}
-                    className={`w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-monowarden-blockquotesono text-sm ${
-                      formErrors.barcode ? 'border-red-500' : 'border-gray-300'
-                    }`}
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  {t('inventory.sku')} *
+                </label>
+                <input
+                  type="text"
+                  value={formData.sku}
+                  onChange={(e) => {
+                    setFormData({ ...formData, sku: e.target.value });
+                    if (formErrors.sku) {
+                      setFormErrors({ ...formErrors, sku: undefined });
+                    }
+                  }}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                    formErrors.sku ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                />
+                {formErrors.sku && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.sku}</p>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  {t('inventory.huid')} *
+                </label>
+                <input
+                  type="text"
+                  value={formData.huid || ''}
+                  onChange={(e) => {
+                    setFormData({ ...formData, huid: e.target.value });
+                    if (formErrors.huid) {
+                      setFormErrors({ ...formErrors, huid: undefined });
+                    }
+                  }}
+                  placeholder={t('inventory.huidPlaceholder')}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                    formErrors.huid ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                />
+                {formErrors.huid && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.huid}</p>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-gray-700">{t('inventory.barcode')} *</label>
+                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">{t('inventory.barcodeFocusShortcut')}</span>
+                </div>
+                <div className="flex space-x-2">
+                  <div className="flex-1 relative">
+                    <input
+                      ref={barcodeInputRef}
+                      type="text"
+                      value={formData.barcode}
+                      onChange={(e) => {
+                        handleBarcodeInput(e.target.value);
+                        if (formErrors.barcode) {
+                          setFormErrors({ ...formErrors, barcode: undefined });
+                        }
+                      }}
+                      onKeyDown={handleBarcodeKeyDown}
+                      placeholder={t('inventory.barcodePlaceholder')}
+                      className={`w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-monowarden-blockquotesono text-sm ${
+                        formErrors.barcode ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      disabled={isScanning}
+                      title={t('inventory.barcodeInputTitle')}
+                      required
+                    />
+                    {isScanning && (
+                      <div className="absolute right-3 top-2.5">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent"></div>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleScanClick}
                     disabled={isScanning}
-                    title={t('inventory.barcodeInputTitle')}
-                    required
-                  />
-                  {isScanning && (
-                    <div className="absolute right-3 top-2.5">
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent"></div>
-                    </div>
-                  )}
+                    className={`px-3 py-2 rounded-lg transition-colors ${isScanning ? 'bg-amber-100 text-amber-600 cursor-not-allowed' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    title={t('inventory.focusBarcodeInput')}
+                  >
+                    <Scan className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={generateBarcode}
+                    disabled={isScanning || !formData.name.trim()}
+                    className={`px-3 py-2 rounded-lg transition-colors ${isScanning || !formData.name.trim() ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      }`}
+                    title={t('inventory.generateBarcodeHint')}
+                  >
+                    <Package className="h-4 w-4" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleScanClick}
-                  disabled={isScanning}
-                  className={`px-3 py-2 rounded-lg transition-colors ${isScanning ? 'bg-amber-100 text-amber-600 cursor-not-allowed' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  title={t('inventory.focusBarcodeInput')}
-                >
-                  <Scan className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={generateBarcode}
-                  disabled={isScanning || !formData.name.trim()}
-                  className={`px-3 py-2 rounded-lg transition-colors ${isScanning || !formData.name.trim() ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                    }`}
-                  title={t('inventory.generateBarcodeHint')}
-                >
-                  <Package className="h-4 w-4" />
-                </button>
+                {formErrors.barcode && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.barcode}</p>
+                )}
+                {isScanning && !formErrors.barcode && (
+                  <div className="text-xs text-amber-600 mt-1 flex items-center">
+                    <div className="animate-spin rounded-full h-3 w-3 border border-amber-500 border-t-transparent mr-2"></div>
+                    {t('inventory.barcodeScanning')}
+                  </div>
+                )}
+                {formData.barcode && !isScanning && !formErrors.barcode && (
+                  <div className="text-xs text-green-600 mt-1 flex items-center">
+                    <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                    {t('inventory.barcodeReady')}
+                  </div>
+                )}
               </div>
-              {formErrors.barcode && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.barcode}</p>
-              )}
-              {isScanning && !formErrors.barcode && (
-                <div className="text-xs text-amber-600 mt-1 flex items-center">
-                  <div className="animate-spin rounded-full h-3 w-3 border border-amber-500 border-t-transparent mr-2"></div>
-                  {t('inventory.barcodeScanning')}
-                </div>
-              )}
-              {formData.barcode && !isScanning && !formErrors.barcode && (
-                <div className="text-xs text-green-600 mt-1 flex items-center">
-                  <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                  {t('inventory.barcodeReady')}
-                </div>
-              )}
             </div>
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.weightGrams')} *</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max="10000"
-                value={formData.weight || ''}
-                onChange={(e) => {
-                  const value = parseFloat(e.target.value) || 0;
-                  setFormData({ ...formData, weight: value });
-                  if (formErrors.weight) {
-                    setFormErrors({ ...formErrors, weight: undefined });
-                  }
-                }}
-                onWheel={handleWheel}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                  formErrors.weight ? 'border-red-500' : 'border-gray-300'
-                }`}
-                required
-              />
-              {formErrors.weight && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.weight}</p>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.materialType')} *</label>
-              <select
-                value={formData.material_type || 'Gold'}
-                onChange={(e) => {
-                  setFormData({ ...formData, material_type: e.target.value as 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Other' });
-                  if (formErrors.material_type) {
-                    setFormErrors({ ...formErrors, material_type: undefined });
-                  }
-                }}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                  formErrors.material_type ? 'border-red-500' : 'border-gray-300'
-                }`}
-                required
-              >
-                <option value="Gold">{t('inventory.gold')}</option>
-                <option value="Silver">{t('inventory.silver')}</option>
-                <option value="Platinum">{t('inventory.platinum')}</option>
-                <option value="Diamond">{t('inventory.diamond')}</option>
-                <option value="Other">{t('inventory.other')}</option>
-              </select>
-              {formErrors.material_type && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.material_type}</p>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.purity')} *</label>
-              <select
-                value={formData.purity}
-                onChange={(e) => {
-                  const newPurity = e.target.value;
-                  setFormData({ 
-                    ...formData, 
-                    purity: newPurity
-                  });
-                  if (formErrors.purity) {
-                    setFormErrors({ ...formErrors, purity: undefined });
-                  }
-                }}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                  formErrors.purity ? 'border-red-500' : 'border-gray-300'
-                }`}
-                required
-              >
-                <option value="24K">24K</option>
-                <option value="22K">22K</option>
-                <option value="18K">18K</option>
-                <option value="14K">14K</option>
-              </select>
-              {formErrors.purity && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.purity}</p>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.status')} *</label>
-              <select
-                required
-                value={formData.status}
-                onChange={(e) => {
-                  setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' });
-                  if (formErrors.status) {
-                    setFormErrors({ ...formErrors, status: undefined });
-                  }
-                }}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                  formErrors.status ? 'border-red-500' : 'border-gray-300'
-                }`}
-              >
-                <option value="active">{t('common.active')}</option>
-                <option value="inactive">{t('common.inactive')}</option>
-              </select>
-              {formErrors.status && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.status}</p>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.stockQuantity')} *</label>
-              <input
-                type="number"
-                min="0"
-                max="1000000"
-                value={formData.stock_quantity !== undefined && formData.stock_quantity !== null ? formData.stock_quantity : ''}
-                onChange={(e) => {
-                  const inputValue = e.target.value;
-                  const value = inputValue === '' ? 0 : parseInt(inputValue) || 0;
-                  setFormData({ ...formData, stock_quantity: value });
-                  if (formErrors.stock_quantity) {
-                    setFormErrors({ ...formErrors, stock_quantity: undefined });
-                  }
-                }}
-                onWheel={handleWheel}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                  formErrors.stock_quantity ? 'border-red-500' : 'border-gray-300'
-                }`}
-                required
-              />
-              {formErrors.stock_quantity && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.stock_quantity}</p>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.minStockLevel')} *</label>
-              <input
-                type="number"
-                min="0"
-                max="100000"
-                value={formData.min_stock_level || ''}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value) || 0;
-                  setFormData({ ...formData, min_stock_level: value });
-                  if (formErrors.min_stock_level) {
-                    setFormErrors({ ...formErrors, min_stock_level: undefined });
-                  }
-                }}
-                onWheel={handleWheel}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                  formErrors.min_stock_level ? 'border-red-500' : 'border-gray-300'
-                }`}
-                required
-              />
-              {formErrors.min_stock_level && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.min_stock_level}</p>
-              )}
-            </div>       
           </div>
-          <div className="flex space-x-4 pt-4">
+
+          {/* Physical Properties Section */}
+          <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.weightGrams')} *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max="10000"
+                  value={formData.weight || ''}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value) || 0;
+                    setFormData({ ...formData, weight: value });
+                    if (formErrors.weight) {
+                      setFormErrors({ ...formErrors, weight: undefined });
+                    }
+                  }}
+                  onWheel={handleWheel}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                    formErrors.weight ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                />
+                {formErrors.weight && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.weight}</p>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.materialType')} *</label>
+                <select
+                  value={formData.material_type || 'Gold'}
+                  onChange={(e) => {
+                    const newMaterialType = e.target.value as 'Gold' | 'Silver' | 'Platinum' | 'Diamond' | 'Other';
+                    const purityOptions = getPurityOptions(newMaterialType);
+                    setFormData({ 
+                      ...formData, 
+                      material_type: newMaterialType,
+                      // Reset purity to first option of new material type if current purity is not valid
+                      purity: purityOptions.includes(formData.purity || '') ? formData.purity : purityOptions[0] || '22K'
+                    });
+                    if (formErrors.material_type) {
+                      setFormErrors({ ...formErrors, material_type: undefined });
+                    }
+                  }}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                    formErrors.material_type ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                >
+                  <option value="Gold">{t('inventory.gold')}</option>
+                  <option value="Silver">{t('inventory.silver')}</option>
+                  <option value="Platinum">{t('inventory.platinum')}</option>
+                  <option value="Diamond">{t('inventory.diamond')}</option>
+                  <option value="Other">{t('inventory.other')}</option>
+                </select>
+                {formErrors.material_type && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.material_type}</p>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.purity')} *</label>
+                <select
+                  value={formData.purity}
+                  onChange={(e) => {
+                    const newPurity = e.target.value;
+                    setFormData({ 
+                      ...formData, 
+                      purity: newPurity
+                    });
+                    if (formErrors.purity) {
+                      setFormErrors({ ...formErrors, purity: undefined });
+                    }
+                  }}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                    formErrors.purity ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                >
+                  {getPurityOptions(formData.material_type || 'Gold').map((purity) => (
+                    <option key={purity} value={purity}>
+                      {purity}
+                    </option>
+                  ))}
+                </select>
+                {formErrors.purity && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.purity}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Inventory Management Section */}
+          <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.stockQuantity')} *</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  value={formData.stock_quantity !== undefined && formData.stock_quantity !== null ? formData.stock_quantity : ''}
+                  onChange={(e) => {
+                    const inputValue = e.target.value;
+                    const value = inputValue === '' ? 0 : parseInt(inputValue) || 0;
+                    setFormData({ ...formData, stock_quantity: value });
+                    if (formErrors.stock_quantity) {
+                      setFormErrors({ ...formErrors, stock_quantity: undefined });
+                    }
+                  }}
+                  onWheel={handleWheel}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                    formErrors.stock_quantity ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                />
+                {formErrors.stock_quantity && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.stock_quantity}</p>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.minStockLevel')} *</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100000"
+                  value={formData.min_stock_level || ''}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 0;
+                    setFormData({ ...formData, min_stock_level: value });
+                    if (formErrors.min_stock_level) {
+                      setFormErrors({ ...formErrors, min_stock_level: undefined });
+                    }
+                  }}
+                  onWheel={handleWheel}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                    formErrors.min_stock_level ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  required
+                />
+                {formErrors.min_stock_level && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.min_stock_level}</p>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.status')} *</label>
+                <select
+                  required
+                  value={formData.status}
+                  onChange={(e) => {
+                    setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' });
+                    if (formErrors.status) {
+                      setFormErrors({ ...formErrors, status: undefined });
+                    }
+                  }}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
+                    formErrors.status ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                >
+                  <option value="active">{t('common.active')}</option>
+                  <option value="inactive">{t('common.inactive')}</option>
+                </select>
+                {formErrors.status && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.status}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex space-x-3 pt-2">
             <button
               type="button"
               onClick={handleSubmit}
-              className="flex-1 bg-amber-500 text-white py-2 px-4 rounded-lg hover:bg-amber-600 transition-colors"
+              className="flex-1 bg-amber-500 text-white py-2.5 px-4 rounded-lg hover:bg-amber-600 transition-colors font-medium shadow-sm"
             >
               {product ? t('inventory.updateProduct') : t('inventory.addProduct')}
             </button>
             <button
               type="button"
               onClick={onCancel}
-              className="flex-1 bg-gray-500 text-white py-2 px-4 rounded-lg hover:bg-gray-600 transition-colors"
+              className="flex-1 bg-gray-500 text-white py-2.5 px-4 rounded-lg hover:bg-gray-600 transition-colors font-medium shadow-sm"
             >
               {t('common.cancel')}
             </button>
@@ -729,6 +804,10 @@ const Inventory: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedProductCategory, setSelectedProductCategory] = useState<string>('all');
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState<boolean>(false);
+  const [genderDropdownOpen, setGenderDropdownOpen] = useState<boolean>(false);
+  const categoryDropdownRef = useRef<HTMLDivElement>(null);
+  const genderDropdownRef = useRef<HTMLDivElement>(null);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
@@ -812,6 +891,39 @@ const Inventory: React.FC = () => {
   useEffect(() => {
     filterProducts();
   }, [products, searchTerm, selectedCategory, selectedProductCategory]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target as Node)) {
+        setCategoryDropdownOpen(false);
+      }
+      if (genderDropdownRef.current && !genderDropdownRef.current.contains(event.target as Node)) {
+        setGenderDropdownOpen(false);
+      }
+    };
+
+    if (categoryDropdownOpen || genderDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [categoryDropdownOpen, genderDropdownOpen]);
+
+  // Close dropdowns on Escape key
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setCategoryDropdownOpen(false);
+        setGenderDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, []);
 
   const loadProducts = async () => {
     try {
@@ -949,14 +1061,6 @@ const Inventory: React.FC = () => {
           <p className="text-gray-600 mt-1">{t('inventory.subtitle')}</p>
         </div>
         <div className="flex space-x-3">
-          <button className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
-            <Download className="h-4 w-4" />
-            <span>{t('common.export')}</span>
-          </button>
-          <button className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
-            <Upload className="h-4 w-4" />
-            <span>{t('common.import')}</span>
-          </button>
           <button
             onClick={() => setShowAddModal(true)}
             className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
@@ -969,7 +1073,7 @@ const Inventory: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-4">
+        <div className="flex flex-col md:flex-row md:items-end gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
             <input
@@ -977,43 +1081,123 @@ const Inventory: React.FC = () => {
               placeholder={t('inventory.searchPlaceholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
             />
           </div>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              {/* <Filter className="h-4 w-4 text-gray-400" /> */}
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-              >
-                <option value="all">{t('common.allCategories')}</option>
+          <div className="relative" ref={categoryDropdownRef}>
+            <label className="block text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">
+              {t('common.category')}
+            </label>
+            <button
+              onClick={() => {
+                setCategoryDropdownOpen(!categoryDropdownOpen);
+                setGenderDropdownOpen(false);
+              }}
+              className="w-52 flex items-center justify-between px-4 py-2.5 border-2 border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-800 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 hover:border-amber-300 transition-all cursor-pointer shadow-sm hover:shadow-md"
+            >
+              <span className="truncate">
+                {selectedCategory === 'all' 
+                  ? t('common.allCategories')
+                  : (() => {
+                      const translationKey = `inventory.${selectedCategory.toLowerCase()}`;
+                      const translated = t(translationKey);
+                      return translated !== translationKey ? translated : selectedCategory;
+                    })()
+                }
+              </span>
+              <ChevronDown className={`h-5 w-5 text-gray-500 transition-transform duration-200 flex-shrink-0 ${categoryDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+              
+              {categoryDropdownOpen && (
+                <div className="absolute z-50 mt-1 w-52 bg-white rounded-lg shadow-soft-lg border border-amber-200/20 py-2 animate-scale-in backdrop-blur-md max-h-64 overflow-y-auto">
+                  <button
+                    onClick={() => {
+                      setSelectedCategory('all');
+                      setCategoryDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center px-4 py-2.5 text-left transition-all duration-200 ${
+                      selectedCategory === 'all'
+                        ? 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 font-medium border-r-4 border-amber-500'
+                        : 'text-gray-700 hover:bg-gradient-to-r hover:from-amber-50 hover:to-yellow-50 hover:text-amber-700'
+                    }`}
+                  >
+                    <span className="text-sm">{t('common.allCategories')}</span>
+                    {selectedCategory === 'all' && (
+                      <div className="ml-auto h-2 w-2 rounded-full bg-amber-500"></div>
+                    )}
+                  </button>
                 {allCategories.map(category => {
                   const translationKey = `inventory.${category.toLowerCase()}`;
                   const translated = t(translationKey);
                   const displayName = translated !== translationKey ? translated : category;
                   return (
-                    <option key={category} value={category}>
-                      {displayName}
-                    </option>
+                      <button
+                        key={category}
+                        onClick={() => {
+                          setSelectedCategory(category);
+                          setCategoryDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center px-4 py-2.5 text-left transition-all duration-200 ${
+                          selectedCategory === category
+                            ? 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 font-medium border-r-4 border-amber-500'
+                            : 'text-gray-700 hover:bg-gradient-to-r hover:from-amber-50 hover:to-yellow-50 hover:text-amber-700'
+                        }`}
+                      >
+                        <span className="text-sm truncate">{displayName}</span>
+                        {selectedCategory === category && (
+                          <div className="ml-auto h-2 w-2 rounded-full bg-amber-500 flex-shrink-0"></div>
+                        )}
+                      </button>
                   );
                 })}
-              </select>
             </div>
-            <div className="flex items-center space-x-2">
-              {/* <Filter className="h-4 w-4 text-gray-400" /> */}
-              <select
-                value={selectedProductCategory}
-                onChange={(e) => setSelectedProductCategory(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+              )}
+          </div>
+          <div className="relative" ref={genderDropdownRef}>
+            <label className="block text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">
+              {t('inventory.genderAgeCategory')}
+            </label>
+            <button
+              onClick={() => {
+                setGenderDropdownOpen(!genderDropdownOpen);
+                setCategoryDropdownOpen(false);
+              }}
+              className="w-48 flex items-center justify-between px-4 py-2.5 border-2 border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-800 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 hover:border-amber-300 transition-all cursor-pointer shadow-sm hover:shadow-md"
               >
+              <span className="truncate">
+                {selectedProductCategory === 'all' 
+                  ? t('inventory.allGenderAge')
+                  : productCategoryLabels[selectedProductCategory] || selectedProductCategory
+                }
+              </span>
+              <ChevronDown className={`h-5 w-5 text-gray-500 transition-transform duration-200 flex-shrink-0 ${genderDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {genderDropdownOpen && (
+              <div className="absolute z-50 mt-1 w-48 bg-white rounded-lg shadow-soft-lg border border-amber-200/20 py-2 animate-scale-in backdrop-blur-md">
                 {productCategories.map(category => (
-                  <option key={category} value={category}>
+                  <button
+                    key={category}
+                    onClick={() => {
+                      setSelectedProductCategory(category);
+                      setGenderDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center px-4 py-2.5 text-left transition-all duration-200 ${
+                      selectedProductCategory === category
+                        ? 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 font-medium border-r-4 border-amber-500'
+                        : 'text-gray-700 hover:bg-gradient-to-r hover:from-amber-50 hover:to-yellow-50 hover:text-amber-700'
+                    }`}
+                  >
+                    <span className="text-sm truncate">
                     {category === 'all' ? t('inventory.allGenderAge') : productCategoryLabels[category] || category}
-                  </option>
+                    </span>
+                    {selectedProductCategory === category && (
+                      <div className="ml-auto h-2 w-2 rounded-full bg-amber-500 flex-shrink-0"></div>
+                    )}
+                  </button>
                 ))}
-              </select>
+              </div>
+            )}
             </div>
             {(searchTerm || selectedCategory !== 'all' || selectedProductCategory !== 'all') && (
               <button
@@ -1021,15 +1205,16 @@ const Inventory: React.FC = () => {
                   setSearchTerm('');
                   setSelectedCategory('all');
                   setSelectedProductCategory('all');
+                setCategoryDropdownOpen(false);
+                setGenderDropdownOpen(false);
                 }}
-                className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              className="flex items-center space-x-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
                 title={t('inventory.resetFiltersTooltip')}
               >
                 <RotateCcw className="h-4 w-4" />
                 <span>{t('inventory.resetFilters')}</span>
               </button>
             )}
-          </div>
         </div>
       </div>
 
@@ -1178,87 +1363,102 @@ const Inventory: React.FC = () => {
       )}
 
       {viewingProduct && createPortal(
-      <div className="fixed top-0 left-0 right-0 bottom-0 w-screen h-screen bg-black bg-opacity-50 flex items-center justify-center p-4 z-[9999] m-0" style={{ margin: 0 }}>
-        <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-scale-in">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-gray-100">
           {/* Header Section */}
-          <div className="p-6 border-b border-gray-200 flex items-start justify-between gap-4">
-            <div className="flex flex-col flex-1 min-w-0">
-              <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2 mb-3">
-                <Package className="h-6 w-6 text-amber-600 flex-shrink-0" />
-                <span className="truncate">{viewingProduct.name}</span>
+          <div className="bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 px-4 py-3 border-b border-amber-200/50">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 bg-amber-500 rounded-lg shadow-md">
+                    <Package className="h-5 w-5 text-white" />
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-900 truncate">
+                {viewingProduct.name}
               </h2>
-              <div className="flex flex-wrap gap-2">
-                <span className="font-mono text-sm font-semibold px-3 py-1.5 rounded-md flex items-center gap-2 border border-gray-200 bg-gray-50">
-                  <Hash className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                  <span className="text-gray-700">SKU:</span>
-                  <span className="text-gray-900">{viewingProduct.sku}</span>
-                </span>
-                <span className="font-mono text-sm font-semibold px-3 py-1.5 rounded-md flex items-center gap-2 border border-gray-200 bg-gray-50">
-                  <Hash className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                  <span className="text-gray-700">HUID:</span>
-                  <span className="text-gray-900">{viewingProduct.huid || '-'}</span>
-                </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-white/80 backdrop-blur-sm rounded-lg border border-amber-200/50 shadow-sm">
+                    <Hash className="h-3.5 w-3.5 text-amber-600" />
+                    <span className="text-xs font-medium text-gray-600">SKU</span>
+                    <span className="text-xs font-semibold text-gray-900 font-mono">{viewingProduct.sku}</span>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-white/80 backdrop-blur-sm rounded-lg border border-amber-200/50 shadow-sm">
+                    <Hash className="h-3.5 w-3.5 text-amber-600" />
+                    <span className="text-xs font-medium text-gray-600">HUID</span>
+                    <span className="text-xs font-semibold text-gray-900 font-mono">{viewingProduct.huid || '-'}</span>
+                  </div>
                 {viewingProduct.barcode && (
-                  <span className="font-mono text-sm font-semibold px-3 py-1.5 rounded-md flex items-center gap-2 border border-gray-200 bg-gray-50">
-                    <Barcode className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                    <span className="text-gray-700">Barcode:</span>
-                    <span className="text-gray-900">{viewingProduct.barcode}</span>
-                  </span>
+                    <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-white/80 backdrop-blur-sm rounded-lg border border-amber-200/50 shadow-sm">
+                      <Barcode className="h-3.5 w-3.5 text-amber-600" />
+                      <span className="text-xs font-medium text-gray-600">Barcode</span>
+                      <span className="text-xs font-semibold text-gray-900 font-mono">{viewingProduct.barcode}</span>
+                    </div>
                 )}
               </div>
             </div>
             <button
               onClick={() => setViewingProduct(null)}
-              className="text-gray-400 hover:text-gray-600 transition p-2 rounded-full hover:bg-gray-100 flex-shrink-0"
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all flex-shrink-0"
               title={t('inventory.close')}
             >
-              <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
             </button>
+            </div>
           </div>
 
           {/* Content Section */}
-          <div className="p-6 space-y-8 overflow-y-auto flex-grow">
+          <div className="p-3 space-y-3 overflow-y-auto flex-grow bg-gray-50/30">
             {/* Classification & Purity */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b border-gray-200 pb-2.5">
+            <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
+              <h3 className="text-lg font-semibold text-gray-800 mb-3 pb-1.5 border-b border-gray-200 flex gap-2">
                 {t('inventory.classificationPurity')}
+                {/* <Sparkles className="h-3.5 w-3.5 text-amber-600" /> */}
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white hover:shadow-md transition-shadow">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <User className="h-3.5 w-3.5" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-3 rounded-lg border transition-all">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <Hash className="h-3.5 w-3.5 text-red-600 flex-shrink-0" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     {t('common.category')}
                   </label>
-                  <p className="text-base font-semibold text-gray-900 mt-1">{viewingProduct.category}</p>
                 </div>
-                <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white hover:shadow-md transition-shadow">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5" />
+                  <p className="text-sm font-bold text-gray-900 text-center">{viewingProduct.category || '-'}</p>
+                </div>
+                <div className="p-3 rounded-lg border transition-all">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-blue-600 flex-shrink-0" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     {t('inventory.materialType')}
                   </label>
-                  <p className="text-base font-semibold text-gray-900 mt-1">
+                  </div>
+                  <p className="text-sm font-bold text-gray-900 text-center">
                     {viewingProduct.material_type ? t(`inventory.${viewingProduct.material_type.toLowerCase()}`) : t('inventory.gold')}
                   </p>
                 </div>
-                <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white hover:shadow-md transition-shadow">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5" />
+                <div className="p-3 rounded-lg border transition-all">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     {t('inventory.purity')}
                   </label>
-                  <p className="text-base font-semibold text-gray-900 mt-1">{viewingProduct.purity}</p>
                 </div>
-                <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white hover:shadow-md transition-shadow">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <User className="h-3.5 w-3.5" />
+                  <p className="text-sm font-bold text-gray-900 text-center">{viewingProduct.purity || '-'}</p>
+                </div>
+                <div className="p-3 rounded-lg border transition-all">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <User className="h-3.5 w-3.5 text-red-600 flex-shrink-0" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     {t('inventory.targetGroup')}
                   </label>
-                  <div className="mt-1">
+                  </div>
+                  <div className="flex justify-center">
                   {viewingProduct.product_category ? (
-                      <span className="inline-block px-2.5 py-1 text-sm font-medium rounded border border-gray-200 bg-gray-50 text-gray-900">
+                      <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-md bg-amber-100 text-amber-800 border border-amber-200">
                       {productCategoryLabels[viewingProduct.product_category] || viewingProduct.product_category}
                     </span>
                   ) : (
-                      <span className="text-sm text-gray-400 italic">{t('inventory.notSpecified')}</span>
+                      <span className="text-xs text-gray-400 italic">{t('inventory.notSpecified')}</span>
                   )}
                   </div>
                 </div>
@@ -1266,83 +1466,138 @@ const Inventory: React.FC = () => {
             </div>
 
             {/* Inventory Status */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b border-gray-200 pb-2.5">
+            <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
+              <h3 className="text-lg font-semibold text-gray-800 mb-3 pb-1.5 border-b border-gray-200 flex gap-2">
+               
                 {t('inventory.inventoryStatus')}
+                {/* <Package className="h-3.5 w-3.5 text-amber-600" /> */}
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white hover:shadow-md transition-shadow">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Scale className="h-3.5 w-3.5" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-3 rounded-lg border transition-all">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <Scale className="h-3.5 w-3.5 text-blue-600 flex-shrink-0" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     {t('inventory.unitWeight')}
                   </label>
-                  <p className="text-base font-semibold text-gray-900 mt-1">{viewingProduct.weight}g</p>
                 </div>
-                <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white hover:shadow-md transition-shadow">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Package className="h-3.5 w-3.5" />
+                  <p className="text-lg font-bold text-gray-900 text-center">
+                    {viewingProduct.weight || 0}
+                    <span className="text-xs font-normal text-gray-600 ml-1">g</span>
+                  </p>
+                </div>
+                <div className="p-3  rounded-lg border transition-all">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <Package className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     {t('inventory.currentStock')}
                   </label>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <p className="text-base font-semibold text-gray-900">{viewingProduct.stock_quantity}</p>
-                    {viewingProduct.stock_quantity <= viewingProduct.min_stock_level && (
-                      <span className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border border-red-200 bg-red-50 text-red-700">
-                        <AlertTriangle className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="flex items-baseline justify-center gap-1.5 flex-wrap">
+                    <p className="text-lg font-bold text-gray-900">{viewingProduct.stock_quantity || 0}</p>
+                    {viewingProduct.stock_quantity <= (viewingProduct.min_stock_level || 0) && (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
+                        <AlertTriangle className="h-2.5 w-2.5" />
                         {t('inventory.low')}
                       </span>
                     )}
                   </div>
                 </div>
-                <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white hover:shadow-md transition-shadow">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Gauge className="h-3.5 w-3.5" />
+                <div className="p-3 rounded-lg border transition-all">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <AlertCircle className="h-4 w-4 text-purple-600 flex-shrink-0" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     {t('inventory.minimumLevel')}
                   </label>
-                  <p className="text-base font-semibold text-gray-900 mt-1">{viewingProduct.min_stock_level}</p>
+                </div>
+                  <p className="text-lg font-bold text-gray-900 text-center">{viewingProduct.min_stock_level || 0}</p>
+                </div>
+                <div className="p-3 rounded-lg border transition-all">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <Info className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                      {t('common.status')}
+                    </label>
+                  </div>
+                  <div className="flex justify-center">
+                    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full ${
+                      viewingProduct.status === 'active' 
+                        ? 'bg-green-100 text-green-800 border border-green-200' 
+                        : 'bg-gray-100 text-gray-800 border border-gray-200'
+                    }`}>
+                      {t(`common.${viewingProduct.status || 'active'}`)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <hr className="border-gray-200 my-2" />
-
             {/* Audit History */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b border-gray-200 pb-2.5">
+            <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-sm">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3 pb-1.5 border-b border-gray-200 flex gap-2">
+              
                 {t('inventory.auditHistory')}
+                {/* <Clock className="h-3.5 w-3.5 text-amber-600" /> */}
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white hover:shadow-md transition-shadow">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-3 bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <Clock className="h-3.5 w-3.5 text-green-500" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     {t('inventory.recordCreated')}
                   </label>
-                  <p className="text-sm text-gray-900 mt-1 leading-relaxed">
-                    <span className="font-medium">{new Date(viewingProduct.created_at).toLocaleDateString('en-IN')}</span>
-                    <span className="text-gray-500 mx-2">at</span>
-                    <span className="font-mono text-gray-700">{new Date(viewingProduct.created_at).toLocaleTimeString('en-IN')}</span>
-                  </p>
                 </div>
-                <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white hover:shadow-md transition-shadow">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5" />
+                  <div className="flex flex-col gap-0.5 items-center">
+                    <span className="text-xs font-semibold text-gray-900">
+                      {new Date(viewingProduct.created_at).toLocaleDateString('en-IN', { 
+                        weekday: 'short', 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}
+                    </span>
+                    <span className="text-xs font-mono text-gray-600">
+                      {new Date(viewingProduct.created_at).toLocaleTimeString('en-IN', { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        second: '2-digit'
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-3 bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                    <Clock className="h-3.5 w-3.5 text-green-500" />
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     {t('inventory.lastModified')}
                   </label>
-                  <p className="text-sm text-gray-900 mt-1 leading-relaxed">
-                    <span className="font-medium">{new Date(viewingProduct.updated_at).toLocaleDateString('en-IN')}</span>
-                    <span className="text-gray-500 mx-2">at</span>
-                    <span className="font-mono text-gray-700">{new Date(viewingProduct.updated_at).toLocaleTimeString('en-IN')}</span>
-                  </p>
+                  </div>
+                  <div className="flex flex-col gap-0.5 items-center">
+                    <span className="text-xs font-semibold text-gray-900">
+                      {new Date(viewingProduct.updated_at).toLocaleDateString('en-IN', { 
+                        weekday: 'short', 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}
+                    </span>
+                    <span className="text-xs font-mono text-gray-600">
+                      {new Date(viewingProduct.updated_at).toLocaleTimeString('en-IN', { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        second: '2-digit'
+                      })}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Footer Section */}
-          <div className="p-6 border-t border-gray-200 sticky bottom-0 bg-white z-10">
-            <div className="flex justify-end items-center gap-3">
+          <div className="px-4 py-3 bg-white border-t border-gray-200 flex justify-end items-center gap-2">
               <button
                 onClick={() => setViewingProduct(null)}
-                className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              className="px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium text-xs"
               >
                 {t('inventory.close')}
               </button>
@@ -1351,14 +1606,13 @@ const Inventory: React.FC = () => {
                   setViewingProduct(null);
                   setEditingProduct(viewingProduct);
                 }}
-                className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors font-medium shadow-md"
+              className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-lg hover:from-amber-600 hover:to-amber-700 transition-all font-medium text-xs shadow-md hover:shadow-lg"
               >
-                <Wrench className="h-5 w-5" />
+              <Wrench className="h-3.5 w-3.5" />
                 {t('inventory.editProductDetails')}
               </button>
             </div>
           </div>
-        </div>
       </div>,
       document.body
     )}
@@ -1462,9 +1716,9 @@ const Inventory: React.FC = () => {
                 {t('common.delete')}
               </button>
             </div>
-          </div>
         </div>
-      )}
+      </div>
+    )}
     </div>
   );
 };
