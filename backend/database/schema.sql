@@ -1,4 +1,4 @@
--- Vannamiyal Thangamaligai Database Schema
+-- Vannamayil thangamaligai Database Schema
 -- SQLite Database for offline gold jewelry billing system
 
 -- Products table
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     discount_percentage REAL DEFAULT 0,
     discount_amount REAL DEFAULT 0,
     total_amount REAL NOT NULL,
-    payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'card', 'upi', 'bank_transfer', 'cheque')),
+    payment_method TEXT CHECK (payment_method IN ('cash', 'card', 'upi', 'bank_transfer', 'cheque')),
     payment_status TEXT DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'partial', 'cancelled')),
     amount_paid REAL DEFAULT 0,
     notes TEXT,

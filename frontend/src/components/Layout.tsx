@@ -151,7 +151,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <div className="relative h-10 w-10 sm:h-12 sm:w-12 flex items-center justify-center">
                   <img 
                     src="/logo.png" 
-                    alt="Vannamiyal Thangamaligai Logo" 
+                    alt="Vannamayil thangamaligai Logo" 
                     className="h-full w-full object-contain drop-shadow-lg"
                     onError={(e) => {
                       // Try SVG if PNG fails
@@ -342,7 +342,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             {sidebarOpen && (
               <div className="p-4 border-t border-amber-200/30">
                 <div className="text-xs text-amber-600 text-center font-medium">
-                  Vannamiyal Thangamaligai v1.0
+                  Vannamayil thangamaligai v1.0
                 </div>
               </div>
             )}

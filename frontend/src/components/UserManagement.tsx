@@ -52,11 +52,17 @@ const UserManagement: React.FC = () => {
       if (response.data.success) {
         setUsers(response.data.data);
       } else {
-        error('Failed to load users');
+        error(t('settings.failedToLoadUsers'));
       }
     } catch (err: any) {
       console.error('Error loading users:', err);
-      error(err.response?.data?.message || 'Failed to load users');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToLoadUsers'));
+      }
     } finally {
       setIsLoadingUsers(false);
     }
@@ -64,12 +70,12 @@ const UserManagement: React.FC = () => {
 
   const handleSaveUser = async () => {
     if (!userFormData.username || !userFormData.email || !userFormData.fullName) {
-      error('Please fill in all required fields');
+      error(t('settings.fillAllRequiredFields'));
       return;
     }
 
     if (!editingUser && !userFormData.password) {
-      error('Password is required for new users');
+      error(t('settings.passwordRequiredNewUsers'));
       return;
     }
 
@@ -84,18 +90,24 @@ const UserManagement: React.FC = () => {
           status: userFormData.status
         };
         await apiEndpoints.auth.updateUser(editingUser.id, updateData);
-        success('User updated successfully');
+        success(t('settings.userUpdatedSuccessfully'));
       } else {
         // Create new user
         await apiEndpoints.auth.createUser(userFormData);
-        success('User created successfully');
+        success(t('settings.userCreatedSuccessfully'));
       }
       setShowUserForm(false);
       setEditingUser(null);
       loadUsers();
     } catch (err: any) {
       console.error('Error saving user:', err);
-      error(err.response?.data?.message || 'Failed to save user');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToSaveUser'));
+      }
     }
   };
 
@@ -104,13 +116,19 @@ const UserManagement: React.FC = () => {
 
     try {
       await apiEndpoints.auth.deleteUser(userToDelete.id);
-      success('User deleted successfully');
+      success(t('settings.userDeletedSuccessfully'));
       setShowDeleteConfirm(false);
       setUserToDelete(null);
       loadUsers();
     } catch (err: any) {
       console.error('Error deleting user:', err);
-      error(err.response?.data?.message || 'Failed to delete user');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToDeleteUser'));
+      }
     }
   };
 
@@ -118,12 +136,12 @@ const UserManagement: React.FC = () => {
     if (!passwordUserId) return;
 
     if (!passwordData.newPassword || passwordData.newPassword.length < 6) {
-      error('Password must be at least 6 characters long');
+      error(t('settings.passwordMinLength'));
       return;
     }
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      error('Passwords do not match');
+      error(t('settings.passwordsDoNotMatch'));
       return;
     }
 
@@ -132,7 +150,7 @@ const UserManagement: React.FC = () => {
         newPassword: passwordData.newPassword,
         currentPassword: passwordData.currentPassword || undefined
       });
-      success('Password changed successfully');
+      success(t('settings.passwordChangedSuccessfully'));
       setShowPasswordModal(false);
       setPasswordUserId(null);
       setPasswordData({
@@ -142,7 +160,13 @@ const UserManagement: React.FC = () => {
       });
     } catch (err: any) {
       console.error('Error changing password:', err);
-      error(err.response?.data?.message || 'Failed to change password');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToChangePassword'));
+      }
     }
   };
 
@@ -152,8 +176,8 @@ const UserManagement: React.FC = () => {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
           <AlertTriangle className="h-16 w-16 mx-auto text-red-500 mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h1>
-          <p className="text-gray-600">You don't have permission to access user management.</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">{t('settings.accessDenied')}</h1>
+          <p className="text-gray-600">{t('settings.noPermissionUserManagement')}</p>
         </div>
       </div>
     );
@@ -192,8 +216,8 @@ const UserManagement: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">{t('settings.userManagement') || 'User Management'}</h1>
-          <p className="text-gray-600 mt-1">Manage users, roles, and permissions</p>
+          <h1 className="text-3xl font-bold text-gray-900">{t('settings.userManagement')}</h1>
+          <p className="text-gray-600 mt-1">{t('settings.manageUsersRolesPermissions')}</p>
         </div>
         <button
           onClick={() => {
@@ -211,7 +235,7 @@ const UserManagement: React.FC = () => {
           className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
         >
           <Plus className="h-4 w-4" />
-          <span>{t('settings.addUser') || 'Add User'}</span>
+          <span>{t('settings.addUser')}</span>
         </button>
       </div>
 
@@ -219,17 +243,17 @@ const UserManagement: React.FC = () => {
       {isLoadingUsers ? (
         <div className="flex items-center justify-center py-12 bg-white rounded-xl shadow-sm border border-gray-200">
           <div className="animate-spin rounded-full h-8 w-8 border-2 border-amber-500 border-t-transparent"></div>
-          <span className="ml-3 text-gray-600">Loading users...</span>
+          <span className="ml-3 text-gray-600">{t('settings.loadingUsers')}</span>
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">{t('settings.userName') || 'Username'}</th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">{t('settings.fullName') || 'Full Name'}</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">{t('settings.userName')}</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">{t('settings.fullName')}</th>
                 <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">{t('common.email')}</th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">{t('settings.role') || 'Role'}</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">{t('settings.role')}</th>
                 <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">{t('common.status')}</th>
                 <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">{t('common.actions')}</th>
               </tr>
@@ -246,9 +270,9 @@ const UserManagement: React.FC = () => {
                       user.role === 'admin' ? 'bg-blue-100 text-blue-800' :
                       'bg-green-100 text-green-800'
                     }`}>
-                      {user.role === 'superadmin' ? 'Super Admin' :
-                       user.role === 'admin' ? 'Admin' :
-                       'Finance Manager'}
+                      {user.role === 'superadmin' ? t('settings.superAdmin') :
+                       user.role === 'admin' ? t('settings.admin') :
+                       t('settings.financeManager')}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -259,7 +283,7 @@ const UserManagement: React.FC = () => {
                     }`}>
                       {user.status === 'active' ? t('common.active') :
                        user.status === 'inactive' ? t('common.inactive') :
-                       'Suspended'}
+                       t('settings.suspended')}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -286,7 +310,7 @@ const UserManagement: React.FC = () => {
                         title={
                           canEditUser(user)
                             ? t('common.edit')
-                            : 'Only Superadmin can edit Superadmin users'
+                            : t('settings.onlySuperadminEditSuperadmin')
                         }
                       >
                         <Edit className="h-4 w-4" />
@@ -309,8 +333,8 @@ const UserManagement: React.FC = () => {
                         }`}
                         title={
                           canChangePassword(user)
-                            ? t('settings.changePassword') || 'Change Password'
-                            : 'Only Superadmin can change Superadmin passwords'
+                            ? t('settings.changePassword')
+                            : t('settings.onlySuperadminChangePassword')
                         }
                       >
                         <Lock className="h-4 w-4" />
@@ -329,7 +353,7 @@ const UserManagement: React.FC = () => {
                         title={
                           canDeleteUser(user)
                             ? t('common.delete')
-                            : 'Only Superadmin can delete Superadmin users'
+                            : t('settings.onlySuperadminDeleteSuperadmin')
                         }
                       >
                         <Trash2 className="h-4 w-4" />
@@ -343,7 +367,7 @@ const UserManagement: React.FC = () => {
           {users.length === 0 && (
             <div className="text-center py-12">
               <Users className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-              <p className="text-gray-500">{t('settings.noUsersFound') || 'No users found'}</p>
+              <p className="text-gray-500">{t('settings.noUsersFound')}</p>
             </div>
           )}
         </div>
@@ -351,13 +375,21 @@ const UserManagement: React.FC = () => {
 
       {/* User Form Modal */}
       {showUserForm && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-scale-in">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-gray-900">
-                  {editingUser ? t('settings.editUser') || 'Edit User' : t('settings.addUser') || 'Add User'}
-                </h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-scale-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-gray-100">
+            {/* Header Section */}
+            <div className="bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 px-4 py-3 border-b border-amber-200/50 rounded-t-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-1.5 bg-amber-500 rounded-lg shadow-md">
+                      <Users className="h-5 w-5 text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {editingUser ? t('settings.editUser') : t('settings.addUser')}
+                    </h2>
+                  </div>
+                </div>
                 <button
                   onClick={() => {
                     setShowUserForm(false);
@@ -371,17 +403,19 @@ const UserManagement: React.FC = () => {
                       status: 'active'
                     });
                   }}
-                  className="p-2 hover:bg-gray-100 rounded-full"
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all flex-shrink-0"
+                  title={t('common.close')}
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
-            <div className="p-6 space-y-4">
+            {/* Content Section */}
+            <div className="p-6 space-y-4 overflow-y-auto flex-grow bg-gray-50/30">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.userName') || 'Username'} *
+                    {t('settings.userName')} *
                   </label>
                   <input
                     type="text"
@@ -393,7 +427,7 @@ const UserManagement: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.fullName') || 'Full Name'} *
+                    {t('settings.fullName')} *
                   </label>
                   <input
                     type="text"
@@ -417,7 +451,7 @@ const UserManagement: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t('settings.role') || 'Role'} *
+                    {t('settings.role')} *
                   </label>
                   <select
                     value={userFormData.role}
@@ -430,24 +464,24 @@ const UserManagement: React.FC = () => {
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                   >
-                    <option value="finance_manager">Finance Manager</option>
-                    <option value="admin">Admin</option>
+                    <option value="finance_manager">{t('settings.financeManager')}</option>
+                    <option value="admin">{t('settings.admin')}</option>
                   </select>
                   {editingUser && editingUser.id === currentUser?.id && editingUser.role === 'superadmin' && (
                     <p className="mt-1 text-xs text-amber-600">
-                      Superadmin cannot change their own role
+                      {t('settings.superadminCannotChangeOwnRole')}
                     </p>
                   )}
                   {currentUser?.role === 'admin' && editingUser && editingUser.role === 'superadmin' && (
                     <p className="mt-1 text-xs text-red-600">
-                      You cannot edit Superadmin users
+                      {t('settings.cannotEditSuperadmin')}
                     </p>
                   )}
                 </div>
                 {!editingUser && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('settings.password') || 'Password'} *
+                      {t('settings.password')} *
                     </label>
                     <input
                       type="password"
@@ -469,12 +503,14 @@ const UserManagement: React.FC = () => {
                   >
                     <option value="active">{t('common.active')}</option>
                     <option value="inactive">{t('common.inactive')}</option>
-                    <option value="suspended">Suspended</option>
+                    <option value="suspended">{t('settings.suspended')}</option>
                   </select>
                 </div>
               </div>
-              <div className="flex justify-end space-x-3 pt-4">
+              {/* Action Buttons */}
+              <div className="flex space-x-3 pt-4">
                 <button
+                  type="button"
                   onClick={() => {
                     setShowUserForm(false);
                     setEditingUser(null);
@@ -487,13 +523,14 @@ const UserManagement: React.FC = () => {
                       status: 'active'
                     });
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  className="flex-1 bg-gray-500 text-white py-2.5 px-4 rounded-lg hover:bg-gray-600 transition-colors font-medium shadow-sm"
                 >
                   {t('common.cancel')}
                 </button>
                 <button
+                  type="button"
                   onClick={handleSaveUser}
-                  className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600"
+                  className="flex-1 bg-amber-500 text-white py-2.5 px-4 rounded-lg hover:bg-amber-600 transition-colors font-medium shadow-sm"
                 >
                   {editingUser ? t('common.save') : t('common.add')}
                 </button>
@@ -506,13 +543,21 @@ const UserManagement: React.FC = () => {
 
       {/* Change Password Modal */}
       {showPasswordModal && passwordUserId && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-scale-in">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-gray-900">
-                  {t('settings.changePassword') || 'Change Password'}
-                </h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-scale-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-gray-100 overflow-hidden">
+            {/* Header Section */}
+            <div className="bg-gradient-to-r from-blue-50 via-blue-50 to-blue-50 px-4 py-3 border-b border-blue-200/50 rounded-t-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-1.5 bg-blue-500 rounded-lg shadow-md">
+                      <Lock className="h-5 w-5 text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {t('settings.changePassword')}
+                    </h2>
+                  </div>
+                </div>
                 <button
                   onClick={() => {
                     setShowPasswordModal(false);
@@ -523,16 +568,18 @@ const UserManagement: React.FC = () => {
                       confirmPassword: ''
                     });
                   }}
-                  className="p-2 hover:bg-gray-100 rounded-full"
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all flex-shrink-0"
+                  title={t('common.close')}
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
-            <div className="p-6 space-y-4">
+            {/* Content Section */}
+            <div className="p-6 space-y-4 bg-gray-50/30">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {t('settings.currentPassword') || 'Current Password'} {passwordUserId !== currentUser?.id ? '(Optional for Admin)' : '*'}
+                  {t('settings.currentPassword')} {passwordUserId !== currentUser?.id ? t('settings.currentPasswordOptional') : '*'}
                 </label>
                 <input
                   type="password"
@@ -543,7 +590,7 @@ const UserManagement: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {t('settings.newPassword') || 'New Password'} *
+                  {t('settings.newPassword')} *
                 </label>
                 <input
                   type="password"
@@ -555,7 +602,7 @@ const UserManagement: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {t('settings.confirmPassword') || 'Confirm Password'} *
+                  {t('settings.confirmPassword')} *
                 </label>
                 <input
                   type="password"
@@ -565,8 +612,10 @@ const UserManagement: React.FC = () => {
                   required
                 />
               </div>
-              <div className="flex justify-end space-x-3 pt-4">
+              {/* Action Buttons */}
+              <div className="flex space-x-3 pt-4">
                 <button
+                  type="button"
                   onClick={() => {
                     setShowPasswordModal(false);
                     setPasswordUserId(null);
@@ -576,15 +625,16 @@ const UserManagement: React.FC = () => {
                       confirmPassword: ''
                     });
                   }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  className="flex-1 bg-gray-500 text-white py-2.5 px-4 rounded-lg hover:bg-gray-600 transition-colors font-medium shadow-sm"
                 >
                   {t('common.cancel')}
                 </button>
                 <button
+                  type="button"
                   onClick={handleChangePassword}
-                  className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600"
+                  className="flex-1 bg-amber-500 text-white py-2.5 px-4 rounded-lg hover:bg-amber-600 transition-colors font-medium shadow-sm"
                 >
-                  {t('settings.updatePassword') || 'Update Password'}
+                  {t('settings.updatePassword')}
                 </button>
               </div>
             </div>
@@ -595,35 +645,60 @@ const UserManagement: React.FC = () => {
 
       {/* Delete User Confirmation Modal */}
       {showDeleteConfirm && userToDelete && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-scale-in">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
-            <div className="flex items-center space-x-2 mb-4">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              <h3 className="text-lg font-semibold text-gray-900">
-                {t('settings.deleteUser') || 'Delete User'}
-              </h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-scale-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-gray-100 overflow-hidden">
+            {/* Header Section */}
+            <div className="bg-gradient-to-r from-red-50 via-red-50 to-red-50 px-4 py-3 border-b border-red-200/50 rounded-t-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-1.5 bg-red-500 rounded-lg shadow-md">
+                      <AlertTriangle className="h-5 w-5 text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {t('settings.deleteUser')}
+                    </h2>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setUserToDelete(null);
+                  }}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all flex-shrink-0"
+                  title={t('common.close')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <p className="text-sm text-gray-700 mb-4">
-              {t('settings.confirmDeleteUser') || 'Are you sure you want to delete this user?'} <strong>{userToDelete.username}</strong>?
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDeleteConfirm(false);
-                  setUserToDelete(null);
-                }}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteUser}
-                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
-              >
-                {t('common.delete')}
-              </button>
+
+            {/* Content Section */}
+            <div className="p-6 bg-gray-50/30">
+              <p className="text-sm text-gray-700 mb-6">
+                {t('settings.confirmDeleteUser')} <strong>{userToDelete.username}</strong>?
+              </p>
+              
+              {/* Action Buttons */}
+              <div className="flex space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setUserToDelete(null);
+                  }}
+                  className="flex-1 bg-gray-500 text-white py-2.5 px-4 rounded-lg hover:bg-gray-600 transition-colors font-medium shadow-sm"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteUser}
+                  className="flex-1 bg-red-600 text-white py-2.5 px-4 rounded-lg hover:bg-red-700 transition-colors font-medium shadow-sm"
+                >
+                  {t('common.delete')}
+                </button>
+              </div>
             </div>
           </div>
         </div>,

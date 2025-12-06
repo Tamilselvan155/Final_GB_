@@ -500,7 +500,7 @@
 //     for (const item of currentBill.items || []) {
 //       const product = products.find(p => p.id === item.product_id);
 //       if (product && product.stock_quantity < item.quantity) {
-//         error(`Insufficient stock for ${item.product_name}. Available: ${product.stock_quantity}, Required: ${item.quantity}`);
+//         error(t('billing.insufficientStockForItem', { product: item.product_name, available: product.stock_quantity, required: item.quantity }));
 //         return;
 //       }
 //     }
@@ -742,7 +742,7 @@
 //         if (product) {
 //           const newStockQuantity = product.stock_quantity - item.quantity;
 //           if (newStockQuantity < 0) {
-//             error(`Cannot deduct more stock than available for ${item.product_name}`);
+//             error(t('billing.cannotDeductMoreStock', { product: item.product_name }));
 //             return;
 //           }
 //           await db.updateProduct(item.product_id, {
@@ -1123,7 +1123,7 @@
 //   const generateBillPDF = (bill: Bill) => {
 //     try {
 //       if (!bill) {
-//         error('Invalid bill data');
+//         error(t('billing.invalidBillData'));
 //         return;
 //       }
 
@@ -1353,14 +1353,14 @@
 //     success('Bill PDF downloaded successfully!');
 //     } catch (err) {
 //       console.error('Error generating bill PDF:', err);
-//       error('Failed to generate bill PDF. Please try again.');
+//       error(t('billing.failedToGenerateBillPDF'));
 //     }
 //   };
 
 //   const generateInvoicePDF = async (invoice: Invoice) => {
 //     try {
 //       if (!invoice) {
-//         error('Invalid invoice data');
+//         error(t('billing.invalidInvoiceData'));
 //         return;
 //       }
 
@@ -1875,10 +1875,10 @@
 //     // Download
 //       const invNum = invoiceToUse.invoice_number || 'INV-UNKNOWN';
 //       doc.save(`Invoice-${invNum}.pdf`);
-//     success('Invoice PDF downloaded successfully!');
+//     success(t('billing.invoicePDFDownloadSuccess'));
 //     } catch (err) {
 //       console.error('Error generating invoice PDF:', err);
-//       error('Failed to generate invoice PDF. Please try again.');
+//       error(t('billing.failedToGenerateInvoicePDF'));
 //     }
 //   };
 
@@ -1939,7 +1939,7 @@
 //   const printBillPDF = (bill: Bill) => {
 //     try {
 //       if (!bill) {
-//         error('Invalid bill data');
+//         error(t('billing.invalidBillData'));
 //         return;
 //       }
 
@@ -2168,7 +2168,7 @@
 //   const printInvoicePDF = (invoice: Invoice) => {
 //     try {
 //       if (!invoice) {
-//         error('Invalid invoice data');
+//         error(t('billing.invalidInvoiceData'));
 //         return;
 //       }
 
@@ -3927,9 +3927,16 @@ const Billing: React.FC = () => {
       const regularBills = billData.filter((bill: Bill) => !bill.bill_number?.startsWith('EXCH-'));
       const exchangeBillsData = billData.filter((bill: Bill) => bill.bill_number?.startsWith('EXCH-'));
       
-      setRecentBills(regularBills.reverse());
-      setExchangeBills(exchangeBillsData.reverse());
-      setRecentInvoices(invoiceData.reverse());
+      // Sort by created_at descending (newest first) - backend already returns sorted, but ensure it's correct
+      const sortByDateDesc = (a: any, b: any) => {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateB - dateA; // Descending order (newest first)
+      };
+      
+      setRecentBills(regularBills.sort(sortByDateDesc));
+      setExchangeBills(exchangeBillsData.sort(sortByDateDesc));
+      setRecentInvoices(invoiceData.sort(sortByDateDesc));
       
       // Clear barcode cache when products are reloaded
       setBarcodeCache(new Map());
@@ -4244,7 +4251,23 @@ const Billing: React.FC = () => {
           return;
         }
 
-        // Add product to bill/invoice or exchange
+        // Check if product is already added (for barcode scanning, only one instance should be added)
+        let isAlreadyAdded = false;
+        
+        if (activeTab === 'exchange') {
+          isAlreadyAdded = exchangeMaterial.exchangeItems.some(item => item.product_id === product.id);
+        } else {
+          isAlreadyAdded = (currentBill.items || []).some(item => item.product_id === product.id);
+        }
+
+        if (isAlreadyAdded) {
+          error(t('billing.productAlreadyAdded', { product: product.name }));
+          setBarcodeInput('');
+          setIsScanning(false);
+          return;
+        }
+
+        // Add product to bill/invoice or exchange (only if not already added)
         if (activeTab === 'exchange') {
           addProductToExchange(product);
         } else {
@@ -4276,7 +4299,7 @@ const Billing: React.FC = () => {
     } finally {
       setIsScanning(false);
     }
-  }, [validateBarcode, findProductByBarcode, activeTab, addProductToExchange, addProductToBill, error, success, t]);
+  }, [validateBarcode, findProductByBarcode, activeTab, addProductToExchange, addProductToBill, error, success, t, exchangeMaterial, currentBill]);
 
   const handleBarcodeInput = useCallback(async (value: string) => {
     setBarcodeInput(value);
@@ -4365,7 +4388,7 @@ const Billing: React.FC = () => {
     for (const item of currentBill.items || []) {
       const product = products.find(p => p.id === item.product_id);
       if (product && product.stock_quantity < item.quantity) {
-        error(`Insufficient stock for ${item.product_name}. Available: ${product.stock_quantity}, Required: ${item.quantity}`);
+        error(t('billing.insufficientStockForItem', { product: item.product_name, available: product.stock_quantity, required: item.quantity }));
         return;
       }
     }
@@ -4373,32 +4396,32 @@ const Billing: React.FC = () => {
     // Validate item fields (Rate, Making, Wastage)
     for (const item of currentBill.items || []) {
       if (!item.rate || item.rate <= 0) {
-        error(`Rate is required for item "${item.product_name}". Please enter a valid rate.`);
+        error(t('billing.rateRequiredForItem', { product: item.product_name }));
         return;
       }
       if (item.making_charge === undefined || item.making_charge === null || item.making_charge < 0) {
-        error(`Making charge is required for item "${item.product_name}". Please enter the making charge (0 if none).`);
+        error(t('billing.makingChargeRequiredForItem', { product: item.product_name }));
         return;
       }
       if (item.wastage_charge === undefined || item.wastage_charge === null || item.wastage_charge < 0) {
-        error(`Wastage is required for item "${item.product_name}". Please enter the wastage in grams (0 if none).`);
+        error(t('billing.wastageRequiredForItem', { product: item.product_name }));
         return;
       }
     }
 
     // Validate payment fields
     if (!currentBill.payment_method) {
-      error('Payment Method is required. Please select a payment method.');
+      error(t('billing.paymentMethodRequired'));
       return;
     }
 
     if (currentBill.amount_paid === undefined || currentBill.amount_paid === null || currentBill.amount_paid < 0) {
-      error('Amount Paid is required. Please enter the amount paid.');
+      error(t('billing.amountPaidRequired'));
       return;
     }
 
     if (!currentBill.payment_status) {
-      error('Payment Status is required. Please select a payment status.');
+      error(t('billing.paymentStatusRequired'));
       return;
     }
 
@@ -4471,9 +4494,15 @@ const Billing: React.FC = () => {
       await loadData();
       
       success(t('billing.billSavedSuccess'));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving bill:', err);
-      error(t('billing.billSaveError'));
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('billing.billSaveError'));
+      }
     } finally {
       dismiss();
     }
@@ -4493,32 +4522,32 @@ const Billing: React.FC = () => {
     // Validate item fields (Rate, Making, Wastage)
     for (const item of currentBill.items || []) {
       if (!item.rate || item.rate <= 0) {
-        error(`Rate is required for item "${item.product_name}". Please enter a valid rate.`);
+        error(t('billing.rateRequiredForItem', { product: item.product_name }));
         return;
       }
       if (item.making_charge === undefined || item.making_charge === null || item.making_charge < 0) {
-        error(`Making charge is required for item "${item.product_name}". Please enter the making charge (0 if none).`);
+        error(t('billing.makingChargeRequiredForItem', { product: item.product_name }));
         return;
       }
       if (item.wastage_charge === undefined || item.wastage_charge === null || item.wastage_charge < 0) {
-        error(`Wastage is required for item "${item.product_name}". Please enter the wastage in grams (0 if none).`);
+        error(t('billing.wastageRequiredForItem', { product: item.product_name }));
         return;
       }
     }
 
     // Validate payment fields
     if (!currentBill.payment_method) {
-      error('Payment Method is required. Please select a payment method.');
+      error(t('billing.paymentMethodRequired'));
       return;
     }
 
     if (currentBill.amount_paid === undefined || currentBill.amount_paid === null || currentBill.amount_paid < 0) {
-      error('Amount Paid is required. Please enter the amount paid.');
+      error(t('billing.amountPaidRequired'));
       return;
     }
 
     if (!currentBill.payment_status) {
-      error('Payment Status is required. Please select a payment status.');
+      error(t('billing.paymentStatusRequired'));
       return;
     }
 
@@ -4583,9 +4612,15 @@ const Billing: React.FC = () => {
       await loadData();
       
       success(t('billing.invoiceSavedSuccess'));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving invoice:', err);
-      error(t('billing.invoiceSaveError'));
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('billing.invoiceSaveError'));
+      }
     } finally {
       dismiss();
     }
@@ -4619,32 +4654,32 @@ const Billing: React.FC = () => {
     // Validate item fields (Rate, Making, Wastage)
     for (const item of exchangeMaterial.exchangeItems || []) {
       if (!item.rate || item.rate <= 0) {
-        error(`Rate is required for item "${item.product_name}". Please enter a valid rate.`);
+        error(t('billing.rateRequiredForItem', { product: item.product_name }));
         return;
       }
       if (item.making_charge === undefined || item.making_charge === null || item.making_charge < 0) {
-        error(`Making charge is required for item "${item.product_name}". Please enter the making charge (0 if none).`);
+        error(t('billing.makingChargeRequiredForItem', { product: item.product_name }));
         return;
       }
       if (item.wastage_charge === undefined || item.wastage_charge === null || item.wastage_charge < 0) {
-        error(`Wastage is required for item "${item.product_name}". Please enter the wastage in grams (0 if none).`);
+        error(t('billing.wastageRequiredForItem', { product: item.product_name }));
         return;
       }
     }
 
     // Validate payment fields
     if (!currentBill.payment_method) {
-      error('Payment Method is required. Please select a payment method.');
+      error(t('billing.paymentMethodRequired'));
       return;
     }
 
     if (currentBill.amount_paid === undefined || currentBill.amount_paid === null || currentBill.amount_paid < 0) {
-      error('Amount Paid is required. Please enter the amount paid.');
+      error(t('billing.amountPaidRequired'));
       return;
     }
 
     if (!currentBill.payment_status) {
-      error('Payment Status is required. Please select a payment status.');
+      error(t('billing.paymentStatusRequired'));
       return;
     }
 
@@ -4700,7 +4735,7 @@ const Billing: React.FC = () => {
         if (product) {
           const newStockQuantity = product.stock_quantity - item.quantity;
           if (newStockQuantity < 0) {
-            error(`Cannot deduct more stock than available for ${item.product_name}`);
+            error(t('billing.cannotDeductMoreStock', { product: item.product_name }));
             return;
           }
           await db.updateProduct(item.product_id, {
@@ -4758,10 +4793,19 @@ const Billing: React.FC = () => {
       // Reload data to refresh products with updated stock
       await loadData();
       
+      // Add a small delay to ensure toast appears after download is initiated
+      setTimeout(() => {
       success(t('billing.exchangeBillSavedSuccess'));
-    } catch (err) {
+      }, 300);
+    } catch (err: any) {
       console.error('Error saving exchange bill:', err);
-      error(t('billing.exchangeBillSaveError'));
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('billing.exchangeBillSaveError'));
+      }
     } finally {
       dismiss();
     }
@@ -4842,9 +4886,15 @@ const Billing: React.FC = () => {
         onSelect(customerData);
         onClose();
         success(t('billing.customerCreatedSuccess'));
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error creating customer:', err);
-        error(t('billing.customerCreateError'));
+        // Extract backend error message
+        const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+        if (backendMessage) {
+          error(backendMessage);
+        } else {
+          error(t('billing.customerCreateError'));
+        }
       }
     };
 
@@ -4880,12 +4930,16 @@ const Billing: React.FC = () => {
         }
         
         setCustomerToDelete(null);
-        success('Customer deleted successfully!');
+        success(t('billing.customerDeletedSuccess'));
       } catch (err: any) {
         console.error('Error deleting customer:', err);
-        // Extract error message from backend response
-        const errorMessage = err?.response?.data?.error || err?.message || 'Failed to delete customer. Please try again.';
-        error(errorMessage);
+        // Extract backend error message
+        const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+        if (backendMessage) {
+          error(backendMessage);
+        } else {
+          error(t('billing.customerDeleteError'));
+        }
       }
     };
 
@@ -5015,7 +5069,7 @@ const Billing: React.FC = () => {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-medium text-gray-900">{t('billing.existingCustomers')}</h3>
                 <span className="text-sm text-gray-500">
-                  {filteredCustomers.length} {filteredCustomers.length === 1 ? 'customer' : 'customers'}
+                  {filteredCustomers.length} {filteredCustomers.length === 1 ? t('billing.customer') : t('billing.customers')}
                 </span>
               </div>
               
@@ -5025,7 +5079,7 @@ const Billing: React.FC = () => {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search by name, phone, or email..."
+                    placeholder={t('billing.searchCustomersPlaceholder')}
                     value={customerSearchTerm}
                     onChange={(e) => setCustomerSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
@@ -5070,7 +5124,7 @@ const Billing: React.FC = () => {
                               setCustomerToDelete(customer);
                             }}
                             className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                            title="Delete customer"
+                            title={t('billing.deleteCustomer')}
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -5081,7 +5135,7 @@ const Billing: React.FC = () => {
                 ) : (
                   <div className="text-center py-8">
                     <p className="text-gray-500">
-                      {customerSearchTerm ? 'No customers found matching your search' : 'No customers found'}
+                      {customerSearchTerm ? t('billing.noCustomersFoundMatching') : t('billing.noCustomersFound')}
                     </p>
                   </div>
                 )}
@@ -5094,27 +5148,27 @@ const Billing: React.FC = () => {
 
       {/* Delete Customer Confirmation Modal */}
       {customerToDelete && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[10000]">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6 border-b border-gray-300">
-              <h3 className="text-lg font-bold text-gray-900">Delete Customer</h3>
+              <h3 className="text-lg font-bold text-gray-900">{t('billing.deleteCustomer')}</h3>
             </div>
             <div className="p-6">
               <p className="text-gray-700 mb-4">
-                Are you sure you want to delete <span className="font-semibold">{customerToDelete.name}</span>? This action cannot be undone.
+                {t('billing.confirmDeleteCustomer', { name: customerToDelete.name })}
               </p>
               <div className="flex space-x-3 justify-end">
                 <button
                   onClick={() => setCustomerToDelete(null)}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleDeleteCustomer}
                   className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
                 >
-                  Delete
+                  {t('common.delete')}
                 </button>
               </div>
             </div>
@@ -5153,7 +5207,7 @@ const Billing: React.FC = () => {
   const generateBillPDF = async (bill: Bill) => {
     try {
       if (!bill) {
-        error('Invalid bill data');
+        error(t('billing.invalidBillData'));
         return;
       }
 
@@ -5461,17 +5515,26 @@ const Billing: React.FC = () => {
       // Download
       const billNum = bill.bill_number || 'BILL-UNKNOWN';
       doc.save(`${isExchange ? 'ExchangeBill' : 'Bill'}-${billNum}.pdf`);
-      success(`${isExchange ? 'Exchange Bill' : 'Bill'} PDF downloaded successfully!`);
-    } catch (err) {
+      // Add a small delay to ensure toast appears after download is initiated
+      setTimeout(() => {
+       success(isExchange ? t('billing.exchangeBillPDFDownloadSuccess') : t('billing.billPDFDownloadSuccess'));
+      }, 300);
+    } catch (err: any) {
       console.error('Error generating bill PDF:', err);
-      error('Failed to generate bill PDF. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('billing.billPDFDownloadError'));
+      }
     }
   };
 
   const generateInvoicePDF = async (invoice: Invoice) => {
     try {
       if (!invoice) {
-        error('Invalid invoice data');
+        error(t('billing.invalidInvoiceData'));
         return;
       }
 
@@ -5956,10 +6019,19 @@ const Billing: React.FC = () => {
     // Download
       const invNum = invoiceToUse.invoice_number || 'INV-UNKNOWN';
       doc.save(`Invoice-${invNum}.pdf`);
+      // Add a small delay to ensure toast appears after download is initiated
+      setTimeout(() => {
     success('Invoice PDF downloaded successfully!');
-    } catch (err) {
+      }, 300);
+    } catch (err: any) {
       console.error('Error generating invoice PDF:', err);
-      error('Failed to generate invoice PDF. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('billing.invoicePDFDownloadError'));
+      }
     }
   };
 
@@ -6020,7 +6092,7 @@ const Billing: React.FC = () => {
   const printBillPDF = async (bill: Bill) => {
     try {
       if (!bill) {
-        error('Invalid bill data');
+        error(t('billing.invalidBillData'));
         return;
       }
 
@@ -6309,7 +6381,7 @@ const Billing: React.FC = () => {
   const printInvoicePDF = (invoice: Invoice) => {
     try {
       if (!invoice) {
-        error('Invalid invoice data');
+        error(t('billing.invalidInvoiceData'));
         return;
       }
 
@@ -6650,7 +6722,7 @@ const Billing: React.FC = () => {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search customer by name, phone, or email..."
+                    placeholder={t('billing.searchCustomersPlaceholder')}
                     value={customerFilter}
                     onChange={(e) => {
                       setCustomerFilter(e.target.value);
@@ -6707,7 +6779,7 @@ const Billing: React.FC = () => {
                   
                   {showCustomerDropdown && customerFilter.trim().length > 0 && filteredCustomersList.length === 0 && (
                     <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg p-4">
-                      <p className="text-sm text-gray-500 text-center">No customers found</p>
+                      <p className="text-sm text-gray-500 text-center">{t('billing.noCustomersFound')}</p>
                     </div>
                   )}
                 </div>
@@ -6841,50 +6913,6 @@ const Billing: React.FC = () => {
                     </div>
                     {exchangeFormErrors.oldMaterialRate && (
                       <p className="text-xs text-red-600">{exchangeFormErrors.oldMaterialRate}</p>
-                    )}
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t('billing.exchangeRate')} *
-                  </label>
-                  <div className="flex flex-col space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={exchangeMaterial.exchangeRate || ''}
-                        onChange={(e) => {
-                          const value = e.target.value === '' ? 0 : parseInt(e.target.value);
-                          if (!isNaN(value) && value >= 0) {
-                            setExchangeMaterial(prev => ({ ...prev, exchangeRate: value }));
-                            if (exchangeFormErrors.exchangeRate) {
-                              setExchangeFormErrors(prev => ({ ...prev, exchangeRate: undefined }));
-                            }
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (e.target.value === '') {
-                            setExchangeMaterial(prev => ({ ...prev, exchangeRate: 0 }));
-                          } else {
-                            const value = parseInt(e.target.value);
-                            if (isNaN(value) || value <= 0) {
-                              setExchangeFormErrors(prev => ({ ...prev, exchangeRate: t('billing.rateRequired') }));
-                            }
-                          }
-                        }}
-                        onWheel={handleWheel}
-                        className={`flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm ${
-                          exchangeFormErrors.exchangeRate ? 'border-red-500' : 'border-gray-300'
-                        }`}
-                        placeholder="0"
-                      />
-                      <span className="text-sm text-gray-600 font-medium">₹/g</span>
-                    </div>
-                    {exchangeFormErrors.exchangeRate && (
-                      <p className="text-xs text-red-600">{exchangeFormErrors.exchangeRate}</p>
                     )}
                   </div>
                 </div>
@@ -7424,6 +7452,103 @@ const Billing: React.FC = () => {
                     </p>
                   </div>
                 </div>
+                
+                {/* Payment Fields */}
+                <div className="space-y-4 pt-4 border-t border-gray-200">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('billing.paymentMethod')}
+                    </label>
+                    <select
+                      value={currentBill.payment_method || ''}
+                      onChange={(e) => setCurrentBill(prev => ({ ...prev, payment_method: (e.target.value || undefined) as any }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                    >
+                      <option value="">{t('billing.selectPaymentMethod')}</option>
+                      <option value="cash">{t('common.cash')}</option>
+                      <option value="card">{t('common.card')}</option>
+                      <option value="upi">{t('common.upi')}</option>
+                      <option value="bank_transfer">{t('common.bankTransfer')}</option>
+                    </select>
+              </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('billing.amountPaid')}
+                    </label>
+                    <div className="flex flex-col space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={currentBill.amount_paid || ''}
+                          onChange={(e) => {
+                            const value = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                            if (value === undefined || (!isNaN(value) && value >= 0)) {
+                              setCurrentBill(prev => ({ ...prev, amount_paid: value }));
+                              if (billFormErrors.amount_paid) {
+                                setBillFormErrors(prev => ({ ...prev, amount_paid: undefined }));
+                              }
+                            }
+                          }}
+                          onBlur={(e) => {
+                            if (e.target.value === '') {
+                              setCurrentBill(prev => ({ ...prev, amount_paid: undefined }));
+                            } else {
+                              const value = parseFloat(e.target.value);
+                              if (isNaN(value) || value < 0) {
+                                setBillFormErrors(prev => ({ ...prev, amount_paid: t('billing.amountPaidInvalid') }));
+                              } else {
+                                // For exchange, calculate the actual total amount (including tax and discount)
+                                // For regular bills/invoices, validate against total_amount
+                                let maxAmount = currentBill.total_amount || 0;
+                                if (activeTab === 'exchange' && exchangeMaterial.difference >= 0) {
+                                  // Calculate exchange total: exchange items total - discount + tax
+                                  const exchangeSubtotal = exchangeMaterial.exchangeItems.reduce((sum, item) => sum + item.total, 0);
+                                  const exchangeDiscountAmount = currentBill.discount_amount || 0;
+                                  const exchangeDiscountedSubtotal = exchangeSubtotal - exchangeDiscountAmount;
+                                  const cgstPercentage = (currentBill as any).cgst_percentage || 1.5;
+                                  const sgstPercentage = (currentBill as any).sgst_percentage || 1.5;
+                                  const exchangeTaxAmount = (exchangeDiscountedSubtotal * (cgstPercentage + sgstPercentage)) / 100;
+                                  maxAmount = exchangeDiscountedSubtotal + exchangeTaxAmount;
+                                }
+                                if (value > maxAmount) {
+                                  setBillFormErrors(prev => ({ ...prev, amount_paid: t('billing.amountPaidExceedsTotal') }));
+                                }
+                              }
+                            }
+                          }}
+                          onWheel={handleWheel}
+                          className={`flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm ${
+                            billFormErrors.amount_paid ? 'border-red-500' : 'border-gray-300'
+                          }`}
+                          placeholder="0"
+                        />
+                        <span className="text-sm text-gray-600 font-medium">₹</span>
+            </div>
+                      {billFormErrors.amount_paid && (
+                        <p className="text-xs text-red-600">{billFormErrors.amount_paid}</p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('billing.paymentStatus')}
+                    </label>
+                    <select
+                      value={currentBill.payment_status || ''}
+                      onChange={(e) => setCurrentBill(prev => ({ ...prev, payment_status: (e.target.value || undefined) as any }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                    >
+                      <option value="">{t('billing.selectPaymentStatus')}</option>
+                      <option value="pending">{t('common.pending')}</option>
+                      <option value="partial">{t('common.partial')}</option>
+                      <option value="paid">{t('common.paid')}</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -7597,7 +7722,7 @@ const Billing: React.FC = () => {
                     onChange={(e) => setCurrentBill(prev => ({ ...prev, payment_method: (e.target.value || undefined) as any }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
                   >
-                    <option value="">Select Payment Method</option>
+                    <option value="">{t('billing.selectPaymentMethod')}</option>
                     <option value="cash">{t('common.cash')}</option>
                     <option value="card">{t('common.card')}</option>
                     <option value="upi">{t('common.upi')}</option>
@@ -7660,7 +7785,7 @@ const Billing: React.FC = () => {
                     onChange={(e) => setCurrentBill(prev => ({ ...prev, payment_status: (e.target.value || undefined) as any }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
                   >
-                    <option value="">Select Payment Status</option>
+                    <option value="">{t('billing.selectPaymentStatus')}</option>
                     <option value="pending">{t('common.pending')}</option>
                     <option value="partial">{t('common.partial')}</option>
                     <option value="paid">{t('common.paid')}</option>
@@ -7684,9 +7809,9 @@ const Billing: React.FC = () => {
                   {/* Generate Bill Button */}
                   <button
                     onClick={activeTab === 'invoice' ? saveInvoice : saveBill}
-                    className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    className="flex-1 flex items-center justify-center space-x-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm"
                   >
-                    <FileText className="h-5 w-5" />
+                    <FileText className="h-4 w-4" />
                     <span>{activeTab === 'invoice' ? t('billing.generateInvoice') : t('billing.generateBill')}</span>
                   </button>
 
@@ -7737,13 +7862,13 @@ const Billing: React.FC = () => {
                       }
                     }}
                     disabled={!currentBill.items || currentBill.items.length === 0}
-                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                    className={`flex-1 flex items-center justify-center space-x-2 px-3 py-2 rounded-lg transition-colors text-sm ${
                       !currentBill.items || currentBill.items.length === 0
                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                         : 'bg-yellow-500 text-white hover:bg-yellow-600'
                     }`}
                   >
-                    <Eye className="h-5 w-5" />
+                    <Eye className="h-4 w-4" />
                     <span>{activeTab === 'invoice' ? t('billing.previewInvoicePDF') : t('billing.previewBillPDF')}</span>
                   </button>
                 </div>
@@ -7800,7 +7925,7 @@ const Billing: React.FC = () => {
                   }`}
                 >
                   <Printer className="h-5 w-5" />
-                  <span>{activeTab === 'invoice' ? 'Print Invoice' : 'Print Bill'}</span>
+                  <span>{activeTab === 'invoice' ? t('billing.printInvoice') : t('billing.printBill')}</span>
                 </button>
               </div>
             </div>
@@ -7820,13 +7945,13 @@ const Billing: React.FC = () => {
                   <button
                     onClick={saveExchangeBill}
                     disabled={!exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0}
-                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                    className={`flex-1 flex items-center justify-center space-x-2 px-3 py-2 rounded-lg transition-colors text-sm ${
                       !exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0
                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                         : 'bg-green-500 text-white hover:bg-green-600'
                     }`}
                   >
-                    <ShoppingCart className="h-5 w-5" />
+                    <ShoppingCart className="h-4 w-4" />
                     <span>{t('billing.generateExchangeBill')}</span>
                   </button>
 
@@ -7886,13 +8011,13 @@ const Billing: React.FC = () => {
                       await generateBillPDF(tempDocument as Bill);
                     }}
                     disabled={!exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0}
-                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 rounded-lg transition-colors ${
+                    className={`flex-1 flex items-center justify-center space-x-2 px-3 py-2 rounded-lg transition-colors text-sm ${
                       !exchangeMaterial.exchangeItems.length || exchangeMaterial.oldMaterialWeight <= 0
                         ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                         : 'bg-yellow-500 text-white hover:bg-yellow-600'
                     }`}
                   >
-                    <Eye className="h-5 w-5" />
+                    <Eye className="h-4 w-4" />
                     <span>{t('billing.previewExchangeBillPDF')}</span>
                   </button>
                 </div>
@@ -7960,7 +8085,7 @@ const Billing: React.FC = () => {
                   }`}
                 >
                   <Printer className="h-5 w-5" />
-                  <span>Print Exchange Bill</span>
+                  <span>{t('billing.printExchangeBill')}</span>
                 </button>
               </div>
             </div>

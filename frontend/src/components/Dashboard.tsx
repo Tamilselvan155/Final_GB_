@@ -226,9 +226,15 @@ const Dashboard: React.FC = () => {
       // Calculate sales and category data
       calculateSalesData(allSales);
       calculateCategoryData(validProducts);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading dashboard data:', err);
-      error(t('dashboard.loadDataError'));
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('dashboard.loadDataError'));
+      }
     } finally {
       console.log('Finished loadDashboardData');
       setIsLoading(false);
@@ -307,7 +313,7 @@ const Dashboard: React.FC = () => {
 
       setCategoryData(categoryArray);
     } else {
-      setCategoryData([{ name: 'No Products', value: 100, color: '#6B7280' }]);
+      setCategoryData([{ name: t('dashboard.noProducts'), value: 100, color: '#6B7280' }]);
     }
   };
 
@@ -550,7 +556,7 @@ const Dashboard: React.FC = () => {
   const generateInvoicePDF = async (invoice: Invoice) => {
     try {
       if (!invoice) {
-        error('Invalid invoice data');
+        error(t('dashboard.invalidInvoiceData'));
         return;
       }
 
@@ -853,17 +859,25 @@ const Dashboard: React.FC = () => {
       // Download
       const invNum = invoiceToUse.invoice_number || 'INV-UNKNOWN';
       doc.save(`Invoice-${invNum}.pdf`);
-      success('Invoice PDF downloaded successfully!');
-    } catch (err) {
+      setTimeout(() => {
+        success(t('dashboard.invoicePDFDownloadSuccess'));
+      }, 300);
+    } catch (err: any) {
       console.error('Error generating invoice PDF:', err);
-      error('Failed to generate invoice PDF. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('dashboard.invoicePDFDownloadError'));
+      }
     }
   };
 
   const generateBillPDF = async (bill: Bill | any) => {
     try {
       if (!bill) {
-        error('Invalid bill data');
+        error(t('dashboard.invalidBillData'));
         return;
       }
 
@@ -1147,10 +1161,18 @@ const Dashboard: React.FC = () => {
       // Download
       const billNum = bill.bill_number || 'BILL-UNKNOWN';
       doc.save(`${isExchange ? 'ExchangeBill' : 'Bill'}-${billNum}.pdf`);
-      success(`${isExchange ? 'Exchange Bill' : 'Bill'} PDF downloaded successfully!`);
-    } catch (err) {
+      setTimeout(() => {
+        success(isExchange ? t('dashboard.exchangeBillPDFDownloadSuccess') : t('dashboard.billPDFDownloadSuccess'));
+      }, 300);
+    } catch (err: any) {
       console.error('Error generating bill PDF:', err);
-      error('Failed to generate bill PDF. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('dashboard.billPDFDownloadError'));
+      }
     }
   };
 

@@ -243,6 +243,15 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
       errors.barcode = t('inventory.barcodeRequired');
     } else if (!validateBarcode(formData.barcode.trim())) {
       errors.barcode = t('inventory.barcodeInvalid');
+    } else {
+      // Check for duplicate barcode (exclude current product if editing)
+      const trimmedBarcode = formData.barcode.trim();
+      const duplicateProduct = products.find(
+        p => p.barcode === trimmedBarcode && (!product || p.id !== product.id)
+      );
+      if (duplicateProduct) {
+        errors.barcode = t('inventory.barcodeAlreadyExists', { barcode: trimmedBarcode });
+      }
     }
 
     setFormErrors(errors);
@@ -462,7 +471,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
               
               {availableCategories.length === 0 && (
                 <div className="text-center py-4 text-gray-500">
-                  <p className="text-xs">No custom categories yet. Add one above!</p>
+                  <p className="text-xs">{t('inventory.noCustomCategoriesYet')}</p>
                 </div>
               )}
             </div>
@@ -532,73 +541,74 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSubmit, onCancel, 
                 )}
               </div>
               <div className="flex flex-col">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-medium text-gray-700">{t('inventory.barcode')} *</label>
-                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">{t('inventory.barcodeFocusShortcut')}</span>
-                </div>
-                <div className="flex space-x-2">
-                  <div className="flex-1 relative">
-                    <input
-                      ref={barcodeInputRef}
-                      type="text"
-                      value={formData.barcode}
-                      onChange={(e) => {
-                        handleBarcodeInput(e.target.value);
-                        if (formErrors.barcode) {
-                          setFormErrors({ ...formErrors, barcode: undefined });
-                        }
-                      }}
-                      onKeyDown={handleBarcodeKeyDown}
-                      placeholder={t('inventory.barcodePlaceholder')}
-                      className={`w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-monowarden-blockquotesono text-sm ${
-                        formErrors.barcode ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                      disabled={isScanning}
-                      title={t('inventory.barcodeInputTitle')}
-                      required
-                    />
-                    {isScanning && (
-                      <div className="absolute right-3 top-2.5">
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent"></div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('inventory.barcode')} *</label>
+                <div className="flex space-x-2 items-start">
+                  <div className="flex-1">
+                    <div className="relative">
+                      <input
+                        ref={barcodeInputRef}
+                        type="text"
+                        value={formData.barcode}
+                        onChange={(e) => {
+                          handleBarcodeInput(e.target.value);
+                          if (formErrors.barcode) {
+                            setFormErrors({ ...formErrors, barcode: undefined });
+                          }
+                        }}
+                        onKeyDown={handleBarcodeKeyDown}
+                        placeholder={t('inventory.barcodePlaceholder')}
+                        className={`w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-monowarden-blockquotesono text-sm ${
+                          formErrors.barcode ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                        disabled={isScanning}
+                        title={t('inventory.barcodeInputTitle')}
+                        required
+                      />
+                      {isScanning && (
+                        <div className="absolute right-3 top-2.5">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent"></div>
+                        </div>
+                      )}
+                    </div>
+                    {formErrors.barcode && (
+                      <p className="mt-1 text-xs text-red-600">{formErrors.barcode}</p>
+                    )}
+                    {isScanning && !formErrors.barcode && (
+                      <div className="text-xs text-amber-600 mt-1 flex items-center">
+                        <div className="animate-spin rounded-full h-3 w-3 border border-amber-500 border-t-transparent mr-2"></div>
+                        {t('inventory.barcodeScanning')}
+                      </div>
+                    )}
+                    {formData.barcode && !isScanning && !formErrors.barcode && (
+                      <div className="text-xs text-green-600 mt-1 flex items-center">
+                        <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                        {t('inventory.barcodeReady')}
                       </div>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleScanClick}
-                    disabled={isScanning}
-                    className={`px-3 py-2 rounded-lg transition-colors ${isScanning ? 'bg-amber-100 text-amber-600 cursor-not-allowed' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    title={t('inventory.focusBarcodeInput')}
-                  >
-                    <Scan className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={generateBarcode}
-                    disabled={isScanning || !formData.name.trim()}
-                    className={`px-3 py-2 rounded-lg transition-colors ${isScanning || !formData.name.trim() ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                      }`}
-                    title={t('inventory.generateBarcodeHint')}
-                  >
-                    <Package className="h-4 w-4" />
-                  </button>
+                  <div className="flex flex-col space-y-2 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleScanClick}
+                      disabled={isScanning}
+                      className={`px-3 py-2 rounded-lg transition-colors ${isScanning ? 'bg-amber-100 text-amber-600 cursor-not-allowed' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      title={t('inventory.focusBarcodeInput')}
+                    >
+                      <Scan className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={generateBarcode}
+                      disabled={isScanning || !formData.name.trim()}
+                      className={`px-3 py-2 rounded-lg transition-colors ${isScanning || !formData.name.trim() ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                        }`}
+                      title={t('inventory.generateBarcodeHint')}
+                    >
+                      <Package className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
-                {formErrors.barcode && (
-                  <p className="mt-1 text-xs text-red-600">{formErrors.barcode}</p>
-                )}
-                {isScanning && !formErrors.barcode && (
-                  <div className="text-xs text-amber-600 mt-1 flex items-center">
-                    <div className="animate-spin rounded-full h-3 w-3 border border-amber-500 border-t-transparent mr-2"></div>
-                    {t('inventory.barcodeScanning')}
-                  </div>
-                )}
-                {formData.barcode && !isScanning && !formErrors.barcode && (
-                  <div className="text-xs text-green-600 mt-1 flex items-center">
-                    <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                    {t('inventory.barcodeReady')}
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -973,9 +983,19 @@ const Inventory: React.FC = () => {
       setProducts([newProduct, ...products]);
       setShowAddModal(false);
       success(t('inventory.productAddSuccess'));
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('Error adding product:', err);
-      error(t('inventory.productAddError'));
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      // Check if error is about duplicate barcode
+      if (backendMessage.toLowerCase().includes('barcode') || backendMessage.toLowerCase().includes('unique')) {
+        error(t('inventory.barcodeAlreadyExists', { barcode: productData.barcode }));
+      } else if (backendMessage) {
+        // Show backend error message if available
+        error(backendMessage);
+      } else {
+        error(t('inventory.productAddError'));
+      }
     }
   };
 
@@ -996,9 +1016,19 @@ const Inventory: React.FC = () => {
         setEditingProduct(null);
         success(t('inventory.productUpdateSuccess'));
       }
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('Error updating product:', err);
-      error(t('inventory.productUpdateError'));
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      // Check if error is about duplicate barcode
+      if (backendMessage.toLowerCase().includes('barcode') || backendMessage.toLowerCase().includes('unique')) {
+        error(t('inventory.barcodeAlreadyExists', { barcode: productData.barcode }));
+      } else if (backendMessage) {
+        // Show backend error message if available
+        error(backendMessage);
+      } else {
+        error(t('inventory.productUpdateError'));
+      }
     }
   };
 
@@ -1030,7 +1060,13 @@ const Inventory: React.FC = () => {
         setCascadeDeleteInfo({ product: productToDelete, message });
         setProductToDelete(null);
       } else {
-        error(t('inventory.productDeleteError'));
+        // Extract backend error message
+        const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+        if (backendMessage) {
+          error(backendMessage);
+        } else {
+          error(t('inventory.productDeleteError'));
+        }
         setProductToDelete(null);
       }
     }
@@ -1045,9 +1081,15 @@ const Inventory: React.FC = () => {
       await dbInstance.deleteWithCascade('products', product.id);
       setProducts(products.filter(p => p.id !== product.id));
               success(t('inventory.productDeleteCascadeSuccess'));
-            } catch (cascadeErr: unknown) {
+            } catch (cascadeErr: any) {
               console.error('Error in cascade delete:', cascadeErr);
-              error(t('inventory.productDeleteCascadeError'));
+              // Extract backend error message
+              const backendMessage = cascadeErr?.response?.data?.message || cascadeErr?.response?.data?.error || cascadeErr?.message || '';
+              if (backendMessage) {
+                error(backendMessage);
+              } else {
+                error(t('inventory.productDeleteCascadeError'));
+              }
     } finally {
       setCascadeDeleteInfo(null);
     }
@@ -1618,107 +1660,172 @@ const Inventory: React.FC = () => {
     )}
 
       {/* Delete product confirmation modal */}
-      {productToDelete && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center space-x-2 mb-4">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              <h3 className="text-lg font-semibold text-gray-900">
-                {t('inventory.confirmDelete')}
-              </h3>
+      {productToDelete && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-scale-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-gray-100 overflow-hidden">
+            {/* Header Section */}
+            <div className="bg-gradient-to-r from-red-50 via-red-50 to-red-50 px-4 py-3 border-b border-red-200/50 rounded-t-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-1.5 bg-red-500 rounded-lg shadow-md">
+                      <AlertTriangle className="h-5 w-5 text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {t('inventory.confirmDelete')}
+                    </h2>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setProductToDelete(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all flex-shrink-0"
+                  title={t('inventory.close')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <p className="text-sm text-gray-700 mb-4">
-              {t('inventory.confirmDeleteCategory', { category: productToDelete.name || '' })}
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setProductToDelete(null)}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={confirmDeleteProduct}
-                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
-              >
-                {t('common.delete')}
-              </button>
+
+            {/* Content Section */}
+            <div className="p-6 bg-gray-50/30">
+              <p className="text-sm text-gray-700 mb-6">
+                {t('inventory.confirmDelete')}
+              </p>
+              
+              {/* Action Buttons */}
+              <div className="flex space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setProductToDelete(null)}
+                  className="flex-1 bg-gray-500 text-white py-2.5 px-4 rounded-lg hover:bg-gray-600 transition-colors font-medium shadow-sm"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteProduct}
+                  className="flex-1 bg-red-600 text-white py-2.5 px-4 rounded-lg hover:bg-red-700 transition-colors font-medium shadow-sm"
+                >
+                  {t('common.delete')}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Cascade delete confirmation modal */}
-      {cascadeDeleteInfo && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center space-x-2 mb-4">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              <h3 className="text-lg font-semibold text-gray-900">
-                {t('inventory.productHasReferences')}
-              </h3>
+      {cascadeDeleteInfo && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-scale-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-gray-100 overflow-hidden">
+            {/* Header Section */}
+            <div className="bg-gradient-to-r from-red-50 via-red-50 to-red-50 px-4 py-3 border-b border-red-200/50 rounded-t-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-1.5 bg-red-500 rounded-lg shadow-md">
+                      <AlertTriangle className="h-5 w-5 text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {t('inventory.productHasReferences')}
+                    </h2>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setCascadeDeleteInfo(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all flex-shrink-0"
+                  title={t('inventory.close')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <p className="text-sm text-gray-700 mb-4">
-              {cascadeDeleteInfo.message}
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setCascadeDeleteInfo(null)}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={confirmCascadeDeleteProduct}
-                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
-              >
-                {t('inventory.deleteWithReferences')}
-              </button>
+
+            {/* Content Section */}
+            <div className="p-6 bg-gray-50/30">
+              <p className="text-sm text-gray-700 mb-6">
+                {cascadeDeleteInfo.message}
+              </p>
+              
+              {/* Action Buttons */}
+              <div className="flex space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCascadeDeleteInfo(null)}
+                  className="flex-1 bg-gray-500 text-white py-2.5 px-4 rounded-lg hover:bg-gray-600 transition-colors font-medium shadow-sm"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmCascadeDeleteProduct}
+                  className="flex-1 bg-red-600 text-white py-2.5 px-4 rounded-lg hover:bg-red-700 transition-colors font-medium shadow-sm"
+                >
+                  {t('inventory.deleteWithReferences')}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Delete category confirmation modal */}
-      {categoryToDelete && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {t('inventory.confirmDeleteCategoryTitle')}
-                </h3>
+      {categoryToDelete && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-scale-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-gray-100 overflow-hidden">
+            {/* Header Section */}
+            <div className="bg-gradient-to-r from-red-50 via-red-50 to-red-50 px-4 py-3 border-b border-red-200/50 rounded-t-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="p-1.5 bg-red-500 rounded-lg shadow-md">
+                      <AlertTriangle className="h-5 w-5 text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {t('inventory.confirmDeleteCategoryTitle')}
+                    </h2>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setCategoryToDelete(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all flex-shrink-0"
+                  title={t('inventory.close')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
             </div>
-            <p className="text-sm text-gray-700 mb-6 ml-12">
-              {t('inventory.confirmDeleteCategory', { category: categoryToDelete })}
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setCategoryToDelete(null)}
-                className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={confirmDeleteCategory}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
-              >
-                {t('common.delete')}
-              </button>
+
+            {/* Content Section */}
+            <div className="p-6 bg-gray-50/30">
+              <p className="text-sm text-gray-700 mb-6">
+                {t('inventory.confirmDeleteCategory', { category: categoryToDelete })}
+              </p>
+              
+              {/* Action Buttons */}
+              <div className="flex space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCategoryToDelete(null)}
+                  className="flex-1 bg-gray-500 text-white py-2.5 px-4 rounded-lg hover:bg-gray-600 transition-colors font-medium shadow-sm"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteCategory}
+                  className="flex-1 bg-red-600 text-white py-2.5 px-4 rounded-lg hover:bg-red-700 transition-colors font-medium shadow-sm"
+                >
+                  {t('common.delete')}
+                </button>
+              </div>
             </div>
-        </div>
-      </div>
-    )}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

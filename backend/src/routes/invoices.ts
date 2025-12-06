@@ -132,6 +132,8 @@ router.post('/', (req, res) => {
       discount_amount = 0,
       total_amount,
       payment_method,
+      payment_status,
+      amount_paid,
       notes,
       created_at,
       updated_at,
@@ -147,7 +149,8 @@ router.post('/', (req, res) => {
     });
     
     // Validate required fields (items are optional to support imports without line items)
-    if (!customer_name || !total_amount || !payment_method) {
+    // payment_method, payment_status, and amount_paid are optional for quotes/estimates
+    if (!customer_name || !total_amount) {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields'
@@ -172,9 +175,9 @@ router.post('/', (req, res) => {
         INSERT INTO invoices (
           invoice_number, customer_id, customer_name, customer_phone, customer_address, 
           subtotal, tax_percentage, tax_amount, discount_percentage, discount_amount, 
-          total_amount, payment_method, notes, created_at, updated_at
+          total_amount, payment_method, payment_status, amount_paid, notes, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       const invoiceResult = invoiceStmt.run(
@@ -189,7 +192,9 @@ router.post('/', (req, res) => {
         discount_percentage,
         discount_amount,
         total_amount,
-        payment_method,
+        payment_method || null,
+        payment_status || null,
+        amount_paid !== undefined && amount_paid !== null ? amount_paid : null,
         notes,
         createdAtIso,
         updatedAtIso

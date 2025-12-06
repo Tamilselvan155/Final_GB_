@@ -78,15 +78,15 @@ const Settings: React.FC = () => {
       const expiryTime = Date.now() + (3600 * 1000); // 1 hour from now
       localStorage.setItem('google_token_expiry', expiryTime.toString());
       
-      success('Successfully connected to Google Drive!');
+      success(t('settings.googleDriveConnected'));
     },
     onError: (errorResponse) => {
       console.error('Google OAuth error:', errorResponse);
       const errorMessage = errorResponse?.error || '';
       if (errorMessage.includes('popup_closed') || errorMessage.includes('cancelled')) {
-        error('Authentication cancelled. Please try again.');
+        error(t('settings.authenticationCancelled'));
       } else {
-        error('Failed to authenticate with Google Drive. Please ensure http://localhost:5173 is added as Authorized JavaScript origin in Google Cloud Console.');
+        error(t('settings.googleDriveAuthFailed'));
       }
     },
     scope: 'https://www.googleapis.com/auth/drive.file',
@@ -109,10 +109,16 @@ const Settings: React.FC = () => {
           gstin: settings.gst_number || '',
           license: settings.bis_license || '',
         });
-      } catch (err) {
-        console.error('Error loading business info:', err);
-        error('Failed to load business information');
-      } finally {
+    } catch (err) {
+      console.error('Error loading business info:', err);
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToLoadBusinessInfo'));
+      }
+    } finally {
         setIsLoading(false);
       }
     };
@@ -146,7 +152,7 @@ const Settings: React.FC = () => {
 
   const handleSave = async () => {
     if (!businessInfo.name.trim() || !businessInfo.address.trim() || !businessInfo.phone.trim()) {
-      error('Please fill in all required fields (Name, Address, Phone)');
+      error(t('settings.fillRequiredFields'));
       return;
     }
 
@@ -168,7 +174,13 @@ const Settings: React.FC = () => {
       success(t('settings.settingsSavedSuccessfully'));
     } catch (err) {
       console.error('Error saving business info:', err);
-      error('Failed to save business information. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToSaveBusinessInfo'));
+      }
     } finally {
       setIsSaving(false);
     }
@@ -234,7 +246,7 @@ const Settings: React.FC = () => {
         const productsSheet = XLSX.utils.json_to_sheet(productsData);
         XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products');
       } else {
-        const productsSheet = XLSX.utils.json_to_sheet([{ 'Message': 'No products found' }]);
+        const productsSheet = XLSX.utils.json_to_sheet([{ 'Message': t('settings.noProductsFoundExcel') }]);
         XLSX.utils.book_append_sheet(workbook, productsSheet, 'Products');
       }
 
@@ -261,7 +273,7 @@ const Settings: React.FC = () => {
         const customersSheet = XLSX.utils.json_to_sheet(customersData);
         XLSX.utils.book_append_sheet(workbook, customersSheet, 'Customers');
       } else {
-        const customersSheet = XLSX.utils.json_to_sheet([{ 'Message': 'No customers found' }]);
+        const customersSheet = XLSX.utils.json_to_sheet([{ 'Message': t('settings.noCustomersFoundExcel') }]);
         XLSX.utils.book_append_sheet(workbook, customersSheet, 'Customers');
       }
 
@@ -290,7 +302,7 @@ const Settings: React.FC = () => {
         const invoicesSheet = XLSX.utils.json_to_sheet(invoicesData);
         XLSX.utils.book_append_sheet(workbook, invoicesSheet, 'Invoices');
       } else {
-        const invoicesSheet = XLSX.utils.json_to_sheet([{ 'Message': 'No invoices found' }]);
+        const invoicesSheet = XLSX.utils.json_to_sheet([{ 'Message': t('settings.noInvoicesFoundExcel') }]);
         XLSX.utils.book_append_sheet(workbook, invoicesSheet, 'Invoices');
       }
 
@@ -354,7 +366,7 @@ const Settings: React.FC = () => {
         const exchangeBillsSheet = XLSX.utils.json_to_sheet(exchangeBillsData);
         XLSX.utils.book_append_sheet(workbook, exchangeBillsSheet, 'Exchange Bills');
       } else {
-        const exchangeBillsSheet = XLSX.utils.json_to_sheet([{ 'Message': 'No exchange bills found' }]);
+        const exchangeBillsSheet = XLSX.utils.json_to_sheet([{ 'Message': t('settings.noExchangeBillsFoundExcel') }]);
         XLSX.utils.book_append_sheet(workbook, exchangeBillsSheet, 'Exchange Bills');
       }
 
@@ -383,7 +395,7 @@ const Settings: React.FC = () => {
         
       const totalRecords = (products?.length || 0) + (customers?.length || 0) + 
                           (invoices?.length || 0) + regularBills.length + exchangeBills.length;
-      success(`All data exported successfully! ${totalRecords} records across 5 sheets.`);
+      success(t('settings.allDataExportedSuccess', { totalRecords }));
       
       // Progress: 100%
       setExportProgress(100);
@@ -398,9 +410,15 @@ const Settings: React.FC = () => {
         exchangeBills: exchangeBills.length
       });
       
-    } catch (err) {
+    } catch (err: any) {
       console.error('Export error:', err);
-      error('Failed to export data. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToExportData'));
+      }
     } finally {
       setIsExporting(false);
       setTimeout(() => setExportProgress(0), 2000);
@@ -452,10 +470,16 @@ const Settings: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      success('Invoices exported to Excel successfully!');
-    } catch (err) {
+      success(t('settings.invoicesExportedSuccess'));
+    } catch (err: any) {
       console.error('Export error:', err);
-      error('Failed to export invoices. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToExportInvoices'));
+      }
     } finally {
       setIsExporting(false);
     }
@@ -512,10 +536,16 @@ const Settings: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      success('Bills exported to Excel successfully!');
-    } catch (err) {
+      success(t('settings.billsExportedSuccess'));
+    } catch (err: any) {
       console.error('Export error:', err);
-      error('Failed to export bills. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToExportBills'));
+      }
     } finally {
       setIsExporting(false);
     }
@@ -578,10 +608,16 @@ const Settings: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      success('Exchange bills exported to Excel successfully!');
-    } catch (err) {
+      success(t('settings.exchangeBillsExportedSuccess'));
+    } catch (err: any) {
       console.error('Export error:', err);
-      error('Failed to export exchange bills. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToExportExchangeBills'));
+      }
     } finally {
       setIsExporting(false);
     }
@@ -629,10 +665,16 @@ const Settings: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      success('Customers exported to Excel successfully!');
-    } catch (err) {
+      success(t('settings.customersExportedSuccess'));
+    } catch (err: any) {
       console.error('Export error:', err);
-      error('Failed to export customers. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToExportCustomers'));
+      }
     } finally {
       setIsExporting(false);
     }
@@ -683,10 +725,16 @@ const Settings: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      success('Products exported to Excel successfully!');
-    } catch (err) {
+      success(t('settings.productsExportedSuccess'));
+    } catch (err: any) {
       console.error('Export error:', err);
-      error('Failed to export products. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToExportProducts'));
+      }
     } finally {
       setIsExporting(false);
     }
@@ -1052,7 +1100,7 @@ const Settings: React.FC = () => {
           }
         }
         
-        success(`Data import completed! ${importedCount} out of ${totalRecords} records imported successfully.`);
+        success(t('settings.dataImportCompleted', { importedCount, totalRecords }));
         setImportStats({
           imported: importedCount,
           total: totalRecords,
@@ -1071,9 +1119,9 @@ const Settings: React.FC = () => {
               console.error(`Error importing product ${i + 1}:`, err);
             }
           }
-          success(`${successCount} out of ${cleanedData.products.length} products imported successfully!`);
+          success(t('settings.productsImportedSuccess', { successCount, total: cleanedData.products.length }));
         } else {
-          error('Invalid file format. No products found.');
+          error(t('settings.invalidFileFormatProducts'));
         }
       } else if (type === 'customers') {
         if (cleanedData.customers && cleanedData.customers.length > 0) {
@@ -1088,9 +1136,9 @@ const Settings: React.FC = () => {
               console.error(`Error importing customer ${i + 1}:`, err);
             }
           }
-          success(`${successCount} out of ${cleanedData.customers.length} customers imported successfully!`);
+          success(t('settings.customersImportedSuccess', { successCount, total: cleanedData.customers.length }));
         } else {
-          error('Invalid file format. No customers found.');
+          error(t('settings.invalidFileFormatCustomers'));
         }
       } else if (type === 'invoices') {
         if (cleanedData.invoices && cleanedData.invoices.length > 0) {
@@ -1220,9 +1268,9 @@ const Settings: React.FC = () => {
               console.error(`Error importing invoice ${i + 1}:`, err);
             }
           }
-          success(`${successCount} out of ${cleanedData.invoices.length} invoices imported successfully!`);
+          success(t('settings.invoicesImportedSuccess', { successCount, total: cleanedData.invoices.length }));
         } else {
-          error('Invalid file format. No invoices found.');
+          error(t('settings.invalidFileFormatInvoices'));
         }
       } else if (type === 'bills') {
         // Import only regular bills (not exchange bills)
@@ -1316,9 +1364,9 @@ const Settings: React.FC = () => {
               console.error(`Error importing bill ${i + 1}:`, err);
             }
           }
-          success(`${successCount} out of ${regularBills.length} bills imported successfully!`);
+          success(t('settings.billsImportedSuccess', { successCount, total: regularBills.length }));
         } else {
-          error('Invalid file format. No bills found.');
+          error(t('settings.invalidFileFormatBills'));
         }
       } else if (type === 'exchangeBills') {
         // Import only exchange bills
@@ -1417,9 +1465,9 @@ const Settings: React.FC = () => {
               console.error(`Error importing exchange bill ${i + 1}:`, err);
             }
           }
-          success(`${successCount} out of ${exchangeBills.length} exchange bills imported successfully!`);
+          success(t('settings.exchangeBillsImportedSuccess', { successCount, total: exchangeBills.length }));
         } else {
-          error('Invalid file format. No exchange bills found.');
+          error(t('settings.invalidFileFormatExchangeBills'));
         }
       }
       
@@ -1436,9 +1484,9 @@ const Settings: React.FC = () => {
     } catch (err) {
       console.error('Import error:', err);
       if (err instanceof Error) {
-        error(`Import failed: ${err.message}`);
+        error(t('settings.importFailed', { message: err.message }));
       } else {
-      error('Failed to import data. Please check the file format and try again.');
+        error(t('settings.failedToImportData'));
       }
     } finally {
       setIsImporting(false);
@@ -1550,9 +1598,9 @@ const Settings: React.FC = () => {
         };
         
         // Validate required fields - skip rows with "No products found" or empty name
-        if (!mappedProduct.name || mappedProduct.name === 'No products found' || !mappedProduct.sku) {
+        if (!mappedProduct.name || mappedProduct.name === t('settings.noProductsFoundExcel') || !mappedProduct.sku) {
           // If name is missing but we have other data, generate a name
-          if (!mappedProduct.name || mappedProduct.name === 'No products found') {
+          if (!mappedProduct.name || mappedProduct.name === t('settings.noProductsFoundExcel')) {
             if (mappedProduct.sku) {
               mappedProduct.name = `Product ${mappedProduct.sku}`;
             } else {
@@ -1594,13 +1642,13 @@ const Settings: React.FC = () => {
         };
         
         // Validate required fields - skip rows with "No customers found" or empty name
-        if (!mappedCustomer.name || mappedCustomer.name === 'No customers found' || !mappedCustomer.phone) {
+        if (!mappedCustomer.name || mappedCustomer.name === t('settings.noCustomersFoundExcel') || !mappedCustomer.phone) {
           // Skip this customer if both name and phone are missing
-          if ((!mappedCustomer.name || mappedCustomer.name === 'No customers found') && !mappedCustomer.phone) {
+          if ((!mappedCustomer.name || mappedCustomer.name === t('settings.noCustomersFoundExcel')) && !mappedCustomer.phone) {
             return null;
           }
           // Generate defaults if missing
-          if (!mappedCustomer.name || mappedCustomer.name === 'No customers found') {
+          if (!mappedCustomer.name || mappedCustomer.name === t('settings.noCustomersFoundExcel')) {
             mappedCustomer.name = mappedCustomer.phone ? `Customer ${mappedCustomer.phone}` : 'Unknown Customer';
           }
           if (!mappedCustomer.phone) {
@@ -1637,13 +1685,13 @@ const Settings: React.FC = () => {
         };
         
         // Validate required fields - skip rows with "No invoices found"
-        if (!mappedInvoice.invoice_number || mappedInvoice.invoice_number === 'No invoices found' || !mappedInvoice.customer_name) {
+        if (!mappedInvoice.invoice_number || mappedInvoice.invoice_number === t('settings.noInvoicesFoundExcel') || !mappedInvoice.customer_name) {
           // Skip this invoice if both invoice_number and customer_name are missing
-          if ((!mappedInvoice.invoice_number || mappedInvoice.invoice_number === 'No invoices found') && !mappedInvoice.customer_name) {
+          if ((!mappedInvoice.invoice_number || mappedInvoice.invoice_number === t('settings.noInvoicesFoundExcel')) && !mappedInvoice.customer_name) {
             return null;
           }
           // Generate defaults if missing
-          if (!mappedInvoice.invoice_number || mappedInvoice.invoice_number === 'No invoices found') {
+          if (!mappedInvoice.invoice_number || mappedInvoice.invoice_number === t('settings.noInvoicesFoundExcel')) {
             mappedInvoice.invoice_number = generateInvoiceNumber();
           }
           if (!mappedInvoice.customer_name) {
@@ -1735,13 +1783,13 @@ const Settings: React.FC = () => {
         }
         
         // Validate required fields - skip rows with "No exchange bills found"
-        if (!mappedBill.bill_number || mappedBill.bill_number === 'EXCH-No exchange bills found' || !mappedBill.customer_name) {
+        if (!mappedBill.bill_number || mappedBill.bill_number === `EXCH-${t('settings.noExchangeBillsFoundExcel')}` || !mappedBill.customer_name) {
           // Skip this bill if both bill_number and customer_name are missing
-          if ((!mappedBill.bill_number || mappedBill.bill_number === 'EXCH-No exchange bills found') && !mappedBill.customer_name) {
+          if ((!mappedBill.bill_number || mappedBill.bill_number === `EXCH-${t('settings.noExchangeBillsFoundExcel')}`) && !mappedBill.customer_name) {
             return null;
           }
           // Generate defaults if missing
-          if (!mappedBill.bill_number || mappedBill.bill_number === 'EXCH-No exchange bills found') {
+          if (!mappedBill.bill_number || mappedBill.bill_number === `EXCH-${t('settings.noExchangeBillsFoundExcel')}`) {
             mappedBill.bill_number = `EXCH-${generateBillNumber()}`;
           }
           if (!mappedBill.customer_name) {
@@ -1844,7 +1892,7 @@ const Settings: React.FC = () => {
         // Add empty sheet with headers
         const productsSheet = XLSX.utils.json_to_sheet([{
           'ID': '',
-          'Product Name': 'No products found',
+          'Product Name': t('settings.noProductsFoundExcel'),
           'Category': '',
           'Gender/Age': '',
           'SKU': '',
@@ -1884,7 +1932,7 @@ const Settings: React.FC = () => {
       } else {
         const customersSheet = XLSX.utils.json_to_sheet([{
           'ID': '',
-          'Name': 'No customers found',
+          'Name': t('settings.noCustomersFoundExcel'),
           'Customer Type': '',
           'Phone': '',
           'Email': '',
@@ -1924,7 +1972,7 @@ const Settings: React.FC = () => {
       } else {
         const invoicesSheet = XLSX.utils.json_to_sheet([{
           'ID': '',
-          'Invoice Number': 'No invoices found',
+          'Invoice Number': t('settings.noInvoicesFoundExcel'),
           'Customer Name': '',
           'Customer Phone': '',
           'Subtotal (₹)': '',
@@ -2014,7 +2062,7 @@ const Settings: React.FC = () => {
       } else {
         const exchangeBillsSheet = XLSX.utils.json_to_sheet([{
           'ID': '',
-          'Exchange Bill Number': 'No exchange bills found',
+          'Exchange Bill Number': t('settings.noExchangeBillsFoundExcel'),
           'Customer Name': '',
           'Customer Phone': '',
           'Old Gold Weight (g)': '',
@@ -2053,14 +2101,14 @@ const Settings: React.FC = () => {
   // Google Drive Sync Functions
   const syncToDrive = async () => {
     if (!accessToken) {
-      error('Please connect to Google Drive first');
+      error(t('settings.pleaseConnectGoogleDrive'));
       return;
     }
 
     // Check if token is expired
     const expiryTime = localStorage.getItem('google_token_expiry');
     if (expiryTime && Date.now() > parseInt(expiryTime)) {
-      error('Your Google Drive session has expired. Please reconnect.');
+      error(t('settings.googleDriveSessionExpired'));
       clearAuth();
       return;
     }
@@ -2227,12 +2275,18 @@ const Settings: React.FC = () => {
       
       setSyncStatus('success');
       setLastBackup(new Date().toISOString());
-      success('Data synced to Google Drive successfully!');
+      success(t('settings.dataSyncedToDrive'));
       
     } catch (err: any) {
       console.error('Drive sync error:', err);
       setSyncStatus('error');
-      error(err.message || 'Failed to sync to Google Drive. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToSyncToDrive'));
+      }
     } finally {
       setIsSyncing(false);
       setTimeout(() => setSyncStatus('idle'), 3000);
@@ -2241,20 +2295,20 @@ const Settings: React.FC = () => {
 
   const restoreFromDrive = async () => {
     if (!accessToken) {
-      error('Please connect to Google Drive first');
+      error(t('settings.pleaseConnectGoogleDrive'));
       return;
     }
 
     // Check if token is expired
     const expiryTime = localStorage.getItem('google_token_expiry');
     if (expiryTime && Date.now() > parseInt(expiryTime)) {
-      error('Your Google Drive session has expired. Please reconnect.');
+      error(t('settings.googleDriveSessionExpired'));
       clearAuth();
       return;
     }
 
     if (!driveFileId) {
-      error('No backup file found in Google Drive. Please sync first.');
+      error(t('settings.noBackupFileFound'));
       return;
     }
 
@@ -2380,7 +2434,7 @@ const Settings: React.FC = () => {
             const { id, created_at, updated_at, ...productData } = product;
             
             // Skip if name is missing or is placeholder
-            if (!productData.name || productData.name === 'No products found' || productData.name.trim() === '') {
+            if (!productData.name || productData.name === t('settings.noProductsFoundExcel') || productData.name.trim() === '') {
               errorCount++;
               errors.push(`Product: Missing name`);
               continue;
@@ -2777,19 +2831,25 @@ const Settings: React.FC = () => {
         console.warn('Restore completed with errors:', errors);
         if (successCount > 0) {
           setSyncStatus('success');
-          success(`Restored ${successCount} items successfully. ${errorCount} items failed. Check console for details.`);
+          success(t('settings.restoredItemsSuccessfully', { successCount, errorCount }));
         } else {
           throw new Error(`Failed to restore data. ${errorCount} errors occurred. First error: ${errors[0]}`);
         }
       } else {
         setSyncStatus('success');
-        success(`Successfully restored ${successCount} items from Google Drive!`);
+        success(t('settings.successfullyRestoredItems', { successCount }));
       }
       
     } catch (err: any) {
       console.error('Drive restore error:', err);
         setSyncStatus('error');
-      error(err.message || 'Failed to restore from Google Drive. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToRestoreFromDrive'));
+      }
       } finally {
         setIsSyncing(false);
         setTimeout(() => setSyncStatus('idle'), 3000);
@@ -2885,18 +2945,24 @@ const Settings: React.FC = () => {
 
       if (errorCount > 0) {
         setSyncStatus('error');
-        error(`Cleared ${deletedCount} items, but ${errorCount} items failed to delete. Check console for details.`);
+        error(t('settings.clearedDataWithErrors', { deletedCount, errorCount }));
         setTimeout(() => setSyncStatus('idle'), 3000);
       } else {
         setSyncStatus('success');
-        success(`All data cleared successfully! Deleted ${deletedCount} items.`);
+        success(t('settings.allDataClearedSuccess', { deletedCount }));
         setTimeout(() => setSyncStatus('idle'), 3000);
       }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Clear data error:', err);
       setIsSyncing(false);
       setSyncStatus('error');
-        error('Failed to clear data. Please try again.');
+      // Extract backend error message
+      const backendMessage = err?.response?.data?.message || err?.response?.data?.error || err?.message || '';
+      if (backendMessage) {
+        error(backendMessage);
+      } else {
+        error(t('settings.failedToClearData'));
+      }
       setTimeout(() => setSyncStatus('idle'), 3000);
     }
   };
@@ -2921,7 +2987,7 @@ const Settings: React.FC = () => {
           {isSaving ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-              <span>Saving...</span>
+              <span>{t('settings.saving')}</span>
             </>
           ) : (
             <>
@@ -2968,7 +3034,7 @@ const Settings: React.FC = () => {
               {isLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="animate-spin rounded-full h-8 w-8 border-2 border-amber-500 border-t-transparent"></div>
-                  <span className="ml-3 text-gray-600">Loading business information...</span>
+                  <span className="ml-3 text-gray-600">{t('settings.loadingBusinessInfo')}</span>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-6">
@@ -3072,7 +3138,7 @@ const Settings: React.FC = () => {
                 <div className="p-6 border border-blue-200 bg-blue-50 rounded-lg">
                   <div className="flex items-center space-x-2 mb-4">
                     <Cloud className="h-5 w-5 text-blue-600" />
-                    <h3 className="font-medium text-gray-900">Google Drive Sync</h3>
+                    <h3 className="font-medium text-gray-900">{t('settings.googleDriveSync')}</h3>
                     <div className="flex items-center space-x-2">
                       {syncStatus === 'syncing' && (
                         <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div>
@@ -3089,23 +3155,23 @@ const Settings: React.FC = () => {
                   {!isGoogleAuthenticated ? (
                     <>
                   <p className="text-sm text-gray-600 mb-4">
-                        Connect your Google Drive account to automatically sync your data backup as an Excel file.
+                        {t('settings.connectGoogleDriveDescription')}
                       </p>
                       <button 
                         onClick={() => loginWithGoogle()}
                         className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                       >
                         <Cloud className="h-4 w-4" />
-                        <span>Connect Google Drive</span>
+                        <span>{t('settings.connectGoogleDrive')}</span>
                       </button>
                     </>
                   ) : (
                     <>
                       <p className="text-sm text-gray-600 mb-4">
-                        Your data will be synced to Google Drive as an Excel file. You can view and edit it directly in Drive.
+                        {t('settings.googleDriveSyncedDescription')}
                     {lastBackup && (
                       <span className="block mt-1 text-xs text-gray-500">
-                        Last backup: {new Date(lastBackup).toLocaleString()}
+                        {t('settings.lastBackup')} {new Date(lastBackup).toLocaleString()}
                       </span>
                     )}
                   </p>
@@ -3120,7 +3186,7 @@ const Settings: React.FC = () => {
                       }`}
                     >
                       <Cloud className="h-4 w-4" />
-                          <span>Sync to Drive</span>
+                          <span>{t('settings.syncToDrive')}</span>
                     </button>
                     <button 
                           onClick={() => setShowRestoreConfirm(true)}
@@ -3132,17 +3198,17 @@ const Settings: React.FC = () => {
                       }`}
                     >
                       <DatabaseIcon className="h-4 w-4" />
-                          <span>Restore from Drive</span>
+                          <span>{t('settings.restoreFromDrive')}</span>
                         </button>
                         <button 
                           onClick={() => {
                             clearAuth();
-                            success('Disconnected from Google Drive');
+                            success(t('settings.disconnectedFromGoogleDrive'));
                           }}
                           className="flex items-center space-x-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
                         >
                           <XCircle className="h-4 w-4" />
-                          <span>Disconnect</span>
+                          <span>{t('settings.disconnect')}</span>
                     </button>
                   </div>
                     </>
@@ -3156,7 +3222,7 @@ const Settings: React.FC = () => {
                     <h3 className="font-medium text-gray-900">{t('settings.backupExport')}</h3>
                   </div>
                   <p className="text-sm text-gray-600 mb-4">
-                    Export your data in Excel format for backup purposes or data migration.
+                    {t('settings.exportDataDescription')}
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <button 
@@ -3169,7 +3235,7 @@ const Settings: React.FC = () => {
                       }`}
                     >
                       <FileSpreadsheet className="h-4 w-4" />
-                      <span>Export All (Excel)</span>
+                      <span>{t('settings.exportAllExcel')}</span>
                     </button>
                     <button 
                       onClick={exportProducts}
@@ -3193,7 +3259,7 @@ const Settings: React.FC = () => {
                       }`}
                     >
                       <Download className="h-4 w-4" />
-                      <span>Export Invoices</span>
+                      <span>{t('settings.exportInvoices')}</span>
                     </button>
                     <button 
                       onClick={exportBills}
@@ -3205,7 +3271,7 @@ const Settings: React.FC = () => {
                       }`}
                     >
                       <Download className="h-4 w-4" />
-                      <span>Export Bills</span>
+                      <span>{t('settings.exportBills')}</span>
                     </button>
                     <button 
                       onClick={exportExchangeBills}
@@ -3217,7 +3283,7 @@ const Settings: React.FC = () => {
                       }`}
                     >
                       <Download className="h-4 w-4" />
-                      <span>Export Exchange Bills</span>
+                      <span>{t('settings.exportExchangeBills')}</span>
                     </button>
                     <button 
                       onClick={exportCustomers}
@@ -3229,14 +3295,14 @@ const Settings: React.FC = () => {
                       }`}
                     >
                       <Download className="h-4 w-4" />
-                      <span>Export Customers</span>
+                      <span>{t('settings.exportCustomers')}</span>
                     </button>
                   </div>
                   {isExporting && (
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center space-x-2 text-amber-600">
                         <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent"></div>
-                        <span className="text-sm">Exporting data...</span>
+                        <span className="text-sm">{t('settings.exportingData')}</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div 
@@ -3252,28 +3318,28 @@ const Settings: React.FC = () => {
                     <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                       <div className="flex items-center space-x-2 text-green-700 mb-2">
                         <CheckCircle className="h-4 w-4" />
-                        <span className="text-sm font-medium">Export Completed Successfully!</span>
+                        <span className="text-sm font-medium">{t('settings.exportCompletedSuccessfully')}</span>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
                         <div className="text-center">
                           <div className="font-semibold text-green-800">{exportStats.products}</div>
-                          <div className="text-green-600">Products</div>
+                          <div className="text-green-600">{t('settings.productsLabel')}</div>
                         </div>
                         <div className="text-center">
                           <div className="font-semibold text-green-800">{exportStats.customers}</div>
-                          <div className="text-green-600">Customers</div>
+                          <div className="text-green-600">{t('settings.customersLabel')}</div>
                         </div>
                         <div className="text-center">
                           <div className="font-semibold text-green-800">{exportStats.invoices}</div>
-                          <div className="text-green-600">Invoices</div>
+                          <div className="text-green-600">{t('settings.invoicesLabel')}</div>
                         </div>
                         <div className="text-center">
                           <div className="font-semibold text-green-800">{exportStats.bills}</div>
-                          <div className="text-green-600">Bills</div>
+                          <div className="text-green-600">{t('settings.billsLabel')}</div>
                         </div>
                         <div className="text-center">
                           <div className="font-semibold text-green-800">{exportStats.exchangeBills}</div>
-                          <div className="text-green-600">Exchange Bills</div>
+                          <div className="text-green-600">{t('settings.exchangeBillsLabel')}</div>
                         </div>
                       </div>
                     </div>
@@ -3287,12 +3353,12 @@ const Settings: React.FC = () => {
                     <h3 className="font-medium text-gray-900">{t('settings.importData')}</h3>
                   </div>
                   <p className="text-sm text-gray-600 mb-4">
-                    Import data from previously exported Excel files. Make sure the file format matches the export format.
+                    {t('settings.importDataDescription')}
                   </p>
 
                   {/* Excel Import */}
                   <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-3">Excel Import</h4>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">{t('settings.excelImport')}</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <button 
                         onClick={() => handleFileImport('all')}
@@ -3304,7 +3370,7 @@ const Settings: React.FC = () => {
                         }`}
                       >
                         <FileSpreadsheet className="h-4 w-4" />
-                        <span>Import All (Excel)</span>
+                        <span>{t('settings.importAllExcel')}</span>
                       </button>
                       <button 
                         onClick={() => handleFileImport('products')}
@@ -3316,7 +3382,7 @@ const Settings: React.FC = () => {
                         }`}
                       >
                         <FileSpreadsheet className="h-4 w-4" />
-                        <span>Import Products (Excel)</span>
+                        <span>{t('settings.importProductsExcel')}</span>
                       </button>
                       <button 
                         onClick={() => handleFileImport('customers')}
@@ -3328,7 +3394,7 @@ const Settings: React.FC = () => {
                         }`}
                       >
                         <FileSpreadsheet className="h-4 w-4" />
-                        <span>Import Customers (Excel)</span>
+                        <span>{t('settings.importCustomersExcel')}</span>
                       </button>
                       <button 
                         onClick={() => handleFileImport('invoices')}
@@ -3340,7 +3406,7 @@ const Settings: React.FC = () => {
                         }`}
                       >
                         <FileSpreadsheet className="h-4 w-4" />
-                        <span>Import Invoices (Excel)</span>
+                        <span>{t('settings.importInvoicesExcel')}</span>
                       </button>
                       <button 
                         onClick={() => handleFileImport('bills')}
@@ -3352,7 +3418,7 @@ const Settings: React.FC = () => {
                         }`}
                       >
                         <FileSpreadsheet className="h-4 w-4" />
-                        <span>Import Bills (Excel)</span>
+                        <span>{t('settings.importBillsExcel')}</span>
                       </button>
                       <button 
                         onClick={() => handleFileImport('exchangeBills')}
@@ -3364,7 +3430,7 @@ const Settings: React.FC = () => {
                         }`}
                       >
                         <FileSpreadsheet className="h-4 w-4" />
-                        <span>Import Exchange Bills (Excel)</span>
+                        <span>{t('settings.importExchangeBillsExcel')}</span>
                       </button>
                     </div>
                   </div>
@@ -3373,7 +3439,7 @@ const Settings: React.FC = () => {
                     <div className="mt-4 space-y-2">
                       <div className="flex items-center space-x-2 text-amber-600">
                         <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent"></div>
-                        <span className="text-sm">Importing data...</span>
+                        <span className="text-sm">{t('settings.importingData')}</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div 
@@ -3400,7 +3466,7 @@ const Settings: React.FC = () => {
                           <AlertTriangle className="h-4 w-4" />
                         )}
                         <span className="text-sm font-medium">
-                          {importStats.errors === 0 ? 'Import Completed Successfully!' : 'Import Completed with Warnings'}
+                          {importStats.errors === 0 ? t('settings.importCompletedSuccessfully') : t('settings.importCompletedWithWarnings')}
                         </span>
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-xs">
@@ -3411,7 +3477,7 @@ const Settings: React.FC = () => {
                             {importStats.imported}
                           </div>
                           <div className={importStats.errors === 0 ? 'text-green-600' : 'text-yellow-600'}>
-                            Imported
+                            {t('settings.imported')}
                           </div>
                         </div>
                         <div className="text-center">
@@ -3421,7 +3487,7 @@ const Settings: React.FC = () => {
                             {importStats.total}
                           </div>
                           <div className={importStats.errors === 0 ? 'text-green-600' : 'text-yellow-600'}>
-                            Total
+                            {t('settings.total')}
                           </div>
                         </div>
                         <div className="text-center">
@@ -3431,7 +3497,7 @@ const Settings: React.FC = () => {
                             {importStats.errors}
                           </div>
                           <div className={importStats.errors === 0 ? 'text-green-600' : 'text-red-600'}>
-                            Errors
+                            {t('settings.errors')}
                           </div>
                         </div>
                       </div>
@@ -3469,12 +3535,11 @@ const Settings: React.FC = () => {
             <div className="flex items-center space-x-2 mb-4">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
               <h3 className="text-lg font-semibold text-gray-900">
-                Restore data from Google Drive?
+                {t('settings.restoreDataFromDriveTitle')}
               </h3>
             </div>
             <p className="text-sm text-gray-700 mb-4">
-              This will replace your current products, customers, invoices, and bills with the data
-              from your latest backup in Google Drive. This action cannot be undone.
+              {t('settings.restoreDataFromDriveMessage')}
             </p>
             <div className="flex justify-end space-x-3">
               <button
@@ -3482,7 +3547,7 @@ const Settings: React.FC = () => {
                 onClick={() => setShowRestoreConfirm(false)}
                 className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -3492,7 +3557,7 @@ const Settings: React.FC = () => {
                 }}
                 className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700"
               >
-                Yes, restore data
+                {t('settings.yesRestoreData')}
               </button>
             </div>
           </div>
@@ -3506,16 +3571,12 @@ const Settings: React.FC = () => {
             <div className="flex items-center space-x-2 mb-4">
               <AlertTriangle className="h-5 w-5 text-red-500" />
               <h3 className="text-lg font-semibold text-gray-900">
-                Clear all data?
+                {t('settings.clearAllDataTitle')}
               </h3>
             </div>
-            <p className="text-sm text-gray-700 mb-2">
-              This will permanently delete <strong>all</strong> products, customers, invoices, and
-              bills from this system.
-            </p>
+            <p className="text-sm text-gray-700 mb-2" dangerouslySetInnerHTML={{ __html: t('settings.clearAllDataMessage') }} />
             <p className="text-sm text-red-600 mb-4 font-medium">
-              This action cannot be undone. Make sure you have exported or backed up your data
-              before continuing.
+              {t('settings.clearAllDataWarning')}
             </p>
             <div className="flex justify-end space-x-3">
               <button
@@ -3523,7 +3584,7 @@ const Settings: React.FC = () => {
                 onClick={() => setShowClearConfirm(false)}
                 className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -3533,7 +3594,7 @@ const Settings: React.FC = () => {
                 }}
                 className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
               >
-                Yes, delete everything
+                {t('settings.yesDeleteEverything')}
               </button>
             </div>
           </div>
